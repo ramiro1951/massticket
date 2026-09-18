@@ -1,0 +1,22 @@
+# Copia este archivo a ".env" en local, o carga estas mismas variables
+# como "Environment Variables" en tu hosting (Railway, Render, etc).
+# NUNCA subas el archivo .env real a GitHub.
+
+# Access Token de PRODUCCIÓN de tu cuenta de Mercado Pago
+# (Tus integraciones -> tu aplicación -> Credenciales de producción -> Access Token)
+MP_ACCESS_TOKEN=APP_USR-000000000000000-000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-000000000
+
+# Clave secreta que Mercado Pago te da al configurar el webhook
+# (Tus integraciones -> tu aplicación -> Webhooks -> Configurar notificaciones -> Clave secreta)
+MP_WEBHOOK_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# La URL pública donde queda este backend, SIN diagonal al final.
+# Mercado Pago necesita poder llamarla desde internet para el webhook.
+PUBLIC_URL=https://massticket.mx
+
+# Clave que tú inventas para entrar al panel de organizador (admin.html).
+# Que sea larga y solo la sepas tú.
+ADMIN_KEY=cambia-esto-por-algo-largo-y-dificil
+
+# Puerto en el que corre el servidor (la mayoría de los hostings lo asignan solos)
+PORT=3000

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tus boletos · massticket.mx</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/estilo.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+<div class="envoltura">
+  <div class="marca"><h1>mass<span>ticket</span></h1></div>
+  <div id="esperando">
+    <h2>Confirmando tu pago…</h2>
+    <p class="ayuda">Esto toma unos segundos. No cierres esta página.</p>
+  </div>
+  <div id="listo" style="display:none">
+    <h2>¡Listo! Aquí están tus boletos</h2>
+    <p class="ayuda">Guarda esta página o toma captura. Cada boleto entra una sola vez.</p>
+    <div class="fila-acciones"><button class="btn claro" id="b-imprimir">Imprimir / guardar como PDF</button></div>
+    <div class="boletos" id="boletos"></div>
+  </div>
+  <div id="fallo" style="display:none">
+    <h2>Todavía no confirmamos tu pago</h2>
+    <p class="ayuda" id="fallo-msg">Si acabas de pagar, espera un momento y recarga esta página. Si canceliste el pago, puedes regresar a la tienda e intentarlo de nuevo.</p>
+    <div class="fila-acciones"><a class="btn" href="/">Volver a la tienda</a></div>
+  </div>
+</div>
+
+<style>@media print{ .marca,.ayuda,.fila-acciones{display:none!important} }</style>
+
+<script>
+const $ = s => document.querySelector(s);
+function pesos(n){ return "$" + Number(n||0).toLocaleString("es-MX"); }
+function escapar(t){ return String(t??"").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
+function fechaLegible(iso){
+  if(!iso) return "Fecha por confirmar";
+  const d = new Date(iso);
+  if(isNaN(d)) return "Fecha por confirmar";
+  return d.toLocaleString("es-MX",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});
+}
+
+const ventaId = new URLSearchParams(location.search).get("venta");
+
+function htmlBoleto(b, evento){
+  return `<article class="boleto">
+    <div>
+      ${evento.imagen?`<img class="boleto-flyer" src="${evento.imagen}" alt="">`:""}
+      <div class="cuerpo">
+        <h3>${escapar(evento.nombre)}</h3>
+        <div style="font-size:13px;color:#6B6458">${escapar(fechaLegible(evento.fecha))} · ${escapar(evento.lugar||"")}</div>
+        <dl>
+          <dt>A nombre de</dt><dd>${escapar(b.nombre)}</dd>
+          <dt>Acceso</dt><dd>Admisión general</dd>
+          <dt>Pagado</dt><dd>${pesos(b.precio)} · Mercado Pago</dd>
+        </dl>
+        <div class="folio">${b.folio}</div>
+      </div>
+    </div>
+    <div class="talon">
+      <div class="qr" data-folio="${b.folio}"></div>
+      <div class="pie">Presenta este código<br>en la entrada</div>
+    </div>
+  </article>`;
+}
+function pintarQRs(cont){
+  cont.querySelectorAll(".qr").forEach(d=>{
+    new QRCode(d, {text:d.dataset.folio, width:118, height:118, colorDark:"#1B1B19", colorLight:"#EFE8D8", correctLevel:QRCode.CorrectLevel.M});
+  });
+}
+
+async function revisar(intentos){
+  if(!ventaId){
+    $("#esperando").style.display="none";
+    $("#fallo").style.display="block";
+    $("#fallo-msg").textContent = "No encontramos la referencia de tu compra. Vuelve a la tienda e intenta de nuevo.";
+    return;
+  }
+  try{
+    const rVenta = await fetch("/api/venta/"+ventaId);
+    const venta = await rVenta.json();
+
+    if(venta.estado === "pagado"){
+      $("#esperando").style.display="none";
+      $("#listo").style.display="block";
+      const cont = $("#boletos");
+      cont.innerHTML = venta.boletos.map(b=>htmlBoleto(b, venta.evento || {})).join("");
+      pintarQRs(cont);
+      return;
+    }
+  }catch(e){ /* reintenta abajo */ }
+
+  if(intentos > 0){
+    setTimeout(()=>revisar(intentos-1), 2500);
+  }else{
+    $("#esperando").style.display="none";
+    $("#fallo").style.display="block";
+  }
+}
+$("#b-imprimir").onclick = ()=>window.print();
+revisar(24); // hasta ~1 minuto esperando la confirmación del webhook
+</script>
+</body>
+</html>

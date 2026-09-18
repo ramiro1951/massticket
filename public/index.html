@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>massticket.mx — Eventos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/estilo.css">
+<style>
+  .lista-eventos{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));margin-top:24px}
+  .tarjeta{
+    background:var(--noche-2);border:1px solid var(--linea);border-radius:10px;overflow:hidden;
+    text-decoration:none;color:var(--papel);display:flex;flex-direction:column;transition:transform .12s ease;
+  }
+  .tarjeta:hover{transform:translateY(-2px)}
+  .tarjeta .foto{width:100%;height:150px;object-fit:cover;background:var(--noche);display:block}
+  .tarjeta .foto.sin-imagen{display:flex;align-items:center;justify-content:center;font-family:"Anton",sans-serif;font-size:15px;color:var(--humo)}
+  .tarjeta .info{padding:14px 16px 16px;flex:1;display:flex;flex-direction:column;gap:4px}
+  .tarjeta h3{font-family:"Anton",sans-serif;font-weight:400;font-size:19px;margin:0}
+  .tarjeta .fecha{color:var(--ambar);font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  .tarjeta .lugar{color:var(--humo);font-size:13px}
+  .tarjeta .precio{margin-top:auto;padding-top:10px;font-family:"Anton",sans-serif;font-size:20px}
+  .tarjeta .agotado{color:var(--rojo);font-size:12.5px;font-weight:700;margin-top:2px}
+  .vacio{color:var(--humo);padding:50px 0;text-align:center}
+</style>
+</head>
+<body>
+<div class="envoltura">
+  <div class="marca"><h1>mass<span>ticket</span></h1></div>
+  <p class="ayuda">Elige el evento al que quieres ir y compra tu boleto en línea.</p>
+
+  <div id="lista" class="lista-eventos"></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+function pesos(n){ return "$" + Number(n||0).toLocaleString("es-MX"); }
+function escapar(t){ return String(t??"").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
+function fechaCorta(iso){
+  if(!iso) return "Fecha por confirmar";
+  const d = new Date(iso);
+  if(isNaN(d)) return "Fecha por confirmar";
+  return d.toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+}
+
+async function cargar(){
+  const cont = $("#lista");
+  try{
+    const r = await fetch("/api/eventos");
+    const eventos = await r.json();
+    if(!eventos.length){
+      cont.innerHTML = '<div class="vacio">Todavía no hay eventos publicados. Vuelve pronto.</div>';
+      return;
+    }
+    cont.innerHTML = eventos.map(e=>{
+      const agotado = e.vendidos >= e.cupo;
+      return `<a class="tarjeta" href="/comprar.html?evento=${encodeURIComponent(e.id)}">
+        ${e.imagen ? `<img class="foto" src="${e.imagen}" alt="">` : `<div class="foto sin-imagen">Sin imagen</div>`}
+        <div class="info">
+          <div class="fecha">${fechaCorta(e.fecha)}</div>
+          <h3>${escapar(e.nombre)}</h3>
+          <div class="lugar">${escapar(e.lugar||"Lugar por confirmar")}</div>
+          ${agotado ? `<div class="agotado">Agotado</div>` : `<div class="precio">${pesos(e.precio)}</div>`}
+        </div>
+      </a>`;
+    }).join("");
+  }catch(e){
+    cont.innerHTML = '<div class="vacio">No se pudo cargar la lista de eventos. Intenta de nuevo en un momento.</div>';
+  }
+}
+cargar();
+</script>
+</body>
+</html>

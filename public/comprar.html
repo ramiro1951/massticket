@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>massticket.mx</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/estilo.css">
+</head>
+<body>
+<div class="envoltura">
+  <div class="marca"><h1>mass<span>ticket</span></h1></div>
+  <p class="ayuda"><a href="/" style="color:var(--ambar)">&larr; Ver todos los eventos</a></p>
+
+  <div id="cargando"><p class="ayuda">Cargando evento…</p></div>
+
+  <div id="contenido" style="display:none">
+    <img class="cartel" id="cartel" alt="">
+    <h2 id="ev-nombre"></h2>
+    <p class="ayuda" id="ev-detalle"></p>
+
+    <div class="error-caja" id="error-caja"></div>
+
+    <div class="panel-caja">
+      <div class="duo">
+        <div class="campo">
+          <label for="c-nombre">Nombre de quien asiste</label>
+          <input id="c-nombre" placeholder="Ana Ramírez">
+        </div>
+        <div class="campo">
+          <label for="c-contacto">Correo (para tu confirmación)</label>
+          <input id="c-contacto" type="email" placeholder="ana@correo.com">
+        </div>
+      </div>
+      <div class="campo">
+        <label for="c-cantidad">Boletos</label>
+        <input id="c-cantidad" type="number" min="1" max="10" value="1">
+      </div>
+      <div class="fila-acciones">
+        <button class="btn" id="b-comprar">Pagar con Mercado Pago</button>
+        <div class="total" id="c-total">$0</div>
+      </div>
+    </div>
+    <p class="ayuda" style="margin-top:14px">Al pagar te llevamos a la página segura de Mercado Pago. Cuando termines, regresas aquí automáticamente y tus boletos con QR quedan listos.</p>
+  </div>
+
+  <div id="no-encontrado" style="display:none">
+    <h2>No encontramos ese evento</h2>
+    <p class="ayuda">Puede que ya haya terminado o que el link esté incompleto.</p>
+    <a class="btn" href="/">Ver todos los eventos</a>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let evento = null;
+const eventoId = new URLSearchParams(location.search).get("evento");
+
+function pesos(n){ return "$" + Number(n||0).toLocaleString("es-MX"); }
+function fechaLegible(iso){
+  if(!iso) return "Fecha por confirmar";
+  const d = new Date(iso);
+  if(isNaN(d)) return "Fecha por confirmar";
+  return d.toLocaleString("es-MX",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});
+}
+
+async function cargarEvento(){
+  if(!eventoId){ mostrarNoEncontrado(); return; }
+  try{
+    const r = await fetch("/api/eventos/"+encodeURIComponent(eventoId));
+    if(!r.ok){ mostrarNoEncontrado(); return; }
+    evento = await r.json();
+  }catch(e){ mostrarNoEncontrado(); return; }
+
+  $("#cargando").style.display = "none";
+  $("#contenido").style.display = "block";
+  $("#ev-nombre").textContent = evento.nombre;
+  $("#ev-detalle").textContent = `${fechaLegible(evento.fecha)} · ${evento.lugar||"Lugar por confirmar"} · ${pesos(evento.precio)} por boleto`;
+  if(evento.imagen){ $("#cartel").src = evento.imagen; $("#cartel").classList.add("ver"); }
+  calcularTotal();
+
+  const params = new URLSearchParams(location.search);
+  if(params.get("pago") === "fallo"){
+    mostrarError("El pago no se completó en Mercado Pago. Puedes intentarlo de nuevo cuando quieras.");
+  }
+}
+function mostrarNoEncontrado(){
+  $("#cargando").style.display = "none";
+  $("#no-encontrado").style.display = "block";
+}
+function calcularTotal(){
+  const n = Math.max(1, parseInt($("#c-cantidad").value||1));
+  $("#c-total").textContent = pesos(n * (evento?.precio||0));
+}
+$("#c-cantidad").oninput = calcularTotal;
+
+function mostrarError(msg){
+  const c = $("#error-caja");
+  c.textContent = msg;
+  c.classList.add("ver");
+}
+
+$("#b-comprar").onclick = async ()=>{
+  const nombre = $("#c-nombre").value.trim();
+  const contacto = $("#c-contacto").value.trim();
+  const cantidad = Math.max(1, Math.min(10, parseInt($("#c-cantidad").value||1)));
+  if(!nombre){ $("#c-nombre").focus(); mostrarError("Escribe el nombre de quien asiste."); return; }
+
+  const btn = $("#b-comprar");
+  btn.disabled = true; btn.textContent = "Conectando con Mercado Pago…";
+  try{
+    const r = await fetch("/api/comprar", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({eventoId, nombre, contacto, cantidad})
+    });
+    const datos = await r.json();
+    if(!r.ok){ mostrarError(datos.error || "No se pudo iniciar el pago."); btn.disabled=false; btn.textContent="Pagar con Mercado Pago"; return; }
+    location.href = datos.initPoint; // Checkout Pro de Mercado Pago
+  }catch(e){
+    mostrarError("No hay conexión con el servidor. Intenta de nuevo.");
+    btn.disabled = false; btn.textContent = "Pagar con Mercado Pago";
+  }
+};
+
+cargarEvento();
+</script>
+</body>
+</html>

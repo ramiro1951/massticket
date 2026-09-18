@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organizador · massticket.mx</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/estilo.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  .selector-evento{
+    display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+    background:var(--noche-2);border:1px solid var(--linea);border-radius:8px;
+    padding:12px 14px;margin-bottom:20px;
+  }
+  .selector-evento label{margin:0;white-space:nowrap}
+  .selector-evento select{flex:1;min-width:180px}
+  .lista-eventos-admin{display:grid;gap:12px;margin-top:18px}
+  .fila-evento{
+    display:flex;gap:14px;align-items:center;background:var(--noche-2);
+    border:1px solid var(--linea);border-radius:8px;padding:12px 14px;
+  }
+  .fila-evento img{width:64px;height:44px;object-fit:cover;border-radius:6px;background:var(--noche);flex-shrink:0}
+  .fila-evento .nombre{font-weight:700}
+  .fila-evento .detalle{color:var(--humo);font-size:13px}
+  .fila-evento .acciones{margin-left:auto;display:flex;gap:8px}
+  .fila-evento .acciones button{font-size:13px;padding:7px 12px}
+</style>
+</head>
+<body>
+
+<div class="candado" id="candado">
+  <h1 style="font-family:Anton,sans-serif;font-weight:400">Panel del organizador</h1>
+  <p class="ayuda" style="max-width:none;text-align:center">Escribe la clave de administrador que pusiste en el servidor (ADMIN_KEY).</p>
+  <input id="clave" type="password" placeholder="Clave de administrador" style="margin-bottom:12px">
+  <button class="btn" id="b-entrar" style="width:100%">Entrar</button>
+  <p class="ayuda" id="clave-error" style="color:var(--rojo);display:none;text-align:center">Clave incorrecta.</p>
+</div>
+
+<div class="envoltura" id="app" style="display:none">
+  <div class="marca"><h1>mass<span>ticket</span></h1><div class="ayuda" style="margin:0">Organizador</div></div>
+
+  <nav role="tablist">
+    <button role="tab" data-vista="eventos" aria-selected="true">Eventos</button>
+    <button role="tab" data-vista="puerta" aria-selected="false">Puerta</button>
+    <button role="tab" data-vista="boletos" aria-selected="false">Boletos</button>
+    <button role="tab" data-vista="vender" aria-selected="false">Venta manual</button>
+    <button role="tab" data-vista="panel" aria-selected="false">Panel</button>
+  </nav>
+
+  <!-- EVENTOS -->
+  <section class="vista activa" id="v-eventos">
+    <h2>Tus eventos</h2>
+    <p class="ayuda">Crea o edita los eventos que aparecen en la página de inicio de massticket.mx.</p>
+    <div class="panel-caja">
+      <div class="campo"><label for="e-nombre">Nombre del evento</label><input id="e-nombre" placeholder="Noche de Son Jarocho"></div>
+      <div class="campo">
+        <label for="e-imagen">Cartel o foto del evento</label>
+        <div class="subir-imagen">
+          <input type="file" id="e-imagen" accept="image/*">
+          <img class="previsualizacion" id="e-imagen-preview" alt="">
+        </div>
+      </div>
+      <div class="duo">
+        <div class="campo"><label for="e-fecha">Fecha y hora</label><input id="e-fecha" type="datetime-local"></div>
+        <div class="campo"><label for="e-lugar">Lugar</label><input id="e-lugar" placeholder="Teatro García Carrillo, Saltillo"></div>
+      </div>
+      <div class="duo">
+        <div class="campo"><label for="e-precio">Precio por boleto (MXN)</label><input id="e-precio" type="number" min="0" value="250"></div>
+        <div class="campo"><label for="e-cupo">Cupo total</label><input id="e-cupo" type="number" min="1" value="200"></div>
+      </div>
+      <div class="fila-acciones">
+        <button class="btn" id="b-guardar-evento">Crear evento</button>
+        <button class="btn claro" id="b-cancelar-edicion" hidden>Cancelar edición</button>
+      </div>
+    </div>
+    <div class="lista-eventos-admin" id="lista-eventos-admin"></div>
+  </section>
+
+  <!-- PUERTA -->
+  <section class="vista" id="v-puerta">
+    <h2>Control de acceso</h2>
+    <div class="selector-evento">
+      <label for="sel-evento-puerta">Evento:</label>
+      <select id="sel-evento-puerta"></select>
+    </div>
+    <p class="ayuda">Escanea el QR del boleto o teclea el folio. Los folios son únicos en todo el sitio, así que aunque valides aquí, se valida en el evento correcto automáticamente.</p>
+    <div class="resultado" id="resultado"><h3></h3><p></p></div>
+    <div class="panel-caja">
+      <div class="campo"><label for="p-folio">Folio del boleto</label><input id="p-folio" placeholder="MT-3F9K-0142" autocomplete="off"></div>
+      <div class="fila-acciones">
+        <button class="btn" id="b-validar">Validar entrada</button>
+        <button class="btn claro" id="b-camara">Usar cámara</button>
+      </div>
+      <div id="lector"></div>
+    </div>
+  </section>
+
+  <!-- BOLETOS -->
+  <section class="vista" id="v-boletos">
+    <h2>Boletos emitidos</h2>
+    <div class="selector-evento">
+      <label for="sel-evento-boletos">Evento:</label>
+      <select id="sel-evento-boletos"></select>
+    </div>
+    <div class="campo"><input id="b-buscar" placeholder="Buscar por folio, nombre o contacto…"></div>
+    <div id="tabla-boletos"></div>
+  </section>
+
+  <!-- VENTA MANUAL -->
+  <section class="vista" id="v-vender">
+    <h2>Venta manual</h2>
+    <div class="selector-evento">
+      <label for="sel-evento-vender">Evento:</label>
+      <select id="sel-evento-vender"></select>
+    </div>
+    <p class="ayuda">Para efectivo en puerta o cortesías. No pasa por Mercado Pago.</p>
+    <div class="panel-caja">
+      <div class="duo">
+        <div class="campo"><label for="c-nombre">Nombre</label><input id="c-nombre" placeholder="Ana Ramírez"></div>
+        <div class="campo"><label for="c-contacto">Contacto</label><input id="c-contacto" placeholder="Opcional"></div>
+      </div>
+      <div class="duo">
+        <div class="campo"><label for="c-cantidad">Boletos</label><input id="c-cantidad" type="number" min="1" max="20" value="1"></div>
+        <div class="campo">
+          <label for="c-metodo">Forma de pago</label>
+          <select id="c-metodo"><option>Efectivo</option><option>Transferencia</option><option>Cortesía</option></select>
+        </div>
+      </div>
+      <div class="fila-acciones"><button class="btn" id="b-registrar">Registrar y generar boletos</button></div>
+    </div>
+    <div class="boletos" id="recien"></div>
+  </section>
+
+  <!-- PANEL -->
+  <section class="vista" id="v-panel">
+    <h2>Resumen</h2>
+    <div class="selector-evento">
+      <label for="sel-evento-panel">Evento:</label>
+      <select id="sel-evento-panel"><option value="">Todos los eventos</option></select>
+    </div>
+    <div class="metricas" id="metricas"></div>
+    <div class="panel-caja">
+      <div style="font-size:14px;margin-bottom:12px">Ingresos por forma de pago</div>
+      <div id="metodos"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const pesos = n => "$" + Number(n||0).toLocaleString("es-MX");
+function escapar(t){ return String(t??"").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
+function fechaLegible(iso){
+  if(!iso) return "Fecha por confirmar";
+  const d = new Date(iso);
+  if(isNaN(d)) return "Fecha por confirmar";
+  return d.toLocaleString("es-MX",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});
+}
+
+/* ---------- Sesión ---------- */
+let clave = sessionStorage.getItem("massticket-admin-key") || "";
+async function api(ruta, opciones={}){
+  const r = await fetch(ruta, {
+    ...opciones,
+    headers: {"Content-Type":"application/json", "x-admin-key": clave, ...(opciones.headers||{})}
+  });
+  if(r.status === 401) throw new Error("no-autorizado");
+  const texto = await r.text();
+  return texto ? JSON.parse(texto) : null;
+}
+
+async function intentarEntrar(){
+  clave = $("#clave").value;
+  try{
+    await api("/api/boletos");
+    sessionStorage.setItem("massticket-admin-key", clave);
+    $("#candado").style.display="none";
+    $("#app").style.display="block";
+    iniciarApp();
+  }catch(e){
+    $("#clave-error").style.display="block";
+  }
+}
+$("#b-entrar").onclick = intentarEntrar;
+$("#clave").addEventListener("keydown", e=>{ if(e.key==="Enter") intentarEntrar(); });
+if(clave){ intentarEntrar(); }
+
+/* ---------- Navegación ---------- */
+document.querySelectorAll("nav button").forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll("nav button").forEach(o=>o.setAttribute("aria-selected", o===b));
+    document.querySelectorAll(".vista").forEach(v=>v.classList.remove("activa"));
+    $("#v-"+b.dataset.vista).classList.add("activa");
+    if(b.dataset.vista==="boletos") cargarBoletos();
+    if(b.dataset.vista==="panel") cargarPanel();
+  };
+});
+
+/* ---------- Estado general ---------- */
+let eventos = [];
+let eventoEditando = null; // id del evento que se está editando, o null si es uno nuevo
+
+async function iniciarApp(){
+  await cargarEventos();
+}
+
+async function cargarEventos(){
+  eventos = await api("/api/eventos");
+  pintarListaEventosAdmin();
+  llenarSelectores();
+}
+
+function pintarListaEventosAdmin(){
+  const cont = $("#lista-eventos-admin");
+  if(!eventos.length){ cont.innerHTML = '<div class="vacio">Todavía no has creado ningún evento.</div>'; return; }
+  cont.innerHTML = eventos.map(e=>`
+    <div class="fila-evento">
+      ${e.imagen ? `<img src="${e.imagen}" alt="">` : `<img alt="">`}
+      <div>
+        <div class="nombre">${escapar(e.nombre)}</div>
+        <div class="detalle">${escapar(fechaLegible(e.fecha))} · ${escapar(e.lugar||"")} · ${pesos(e.precio)} · ${e.vendidos}/${e.cupo} vendidos</div>
+      </div>
+      <div class="acciones">
+        <button class="btn claro" data-editar="${e.id}">Editar</button>
+        <a class="btn claro" href="/comprar.html?evento=${encodeURIComponent(e.id)}" target="_blank">Ver página</a>
+      </div>
+    </div>`).join("");
+  cont.querySelectorAll("[data-editar]").forEach(b=>{
+    b.onclick = ()=> cargarEventoParaEditar(b.dataset.editar);
+  });
+}
+
+function llenarSelectores(){
+  const opciones = eventos.map(e=>`<option value="${e.id}">${escapar(e.nombre)}</option>`).join("");
+  for(const id of ["sel-evento-puerta","sel-evento-boletos","sel-evento-vender"]){
+    const previo = $("#"+id).value;
+    $("#"+id).innerHTML = opciones || '<option value="">Crea un evento primero</option>';
+    if(previo && eventos.some(e=>e.id===previo)) $("#"+id).value = previo;
+  }
+  $("#sel-evento-panel").innerHTML = '<option value="">Todos los eventos</option>' + opciones;
+}
+["sel-evento-boletos"].forEach(id=> $("#"+id).addEventListener("change", cargarBoletos));
+$("#sel-evento-panel").addEventListener("change", cargarPanel);
+
+/* ---------- Eventos: crear / editar ---------- */
+function limpiarFormularioEvento(){
+  eventoEditando = null;
+  $("#e-nombre").value=""; $("#e-fecha").value=""; $("#e-lugar").value="";
+  $("#e-precio").value=250; $("#e-cupo").value=200;
+  $("#e-imagen").value=""; $("#e-imagen-preview").classList.remove("ver"); $("#e-imagen-preview").src="";
+  imagenPendiente = null;
+  $("#b-guardar-evento").textContent = "Crear evento";
+  $("#b-cancelar-edicion").hidden = true;
+}
+function cargarEventoParaEditar(id){
+  const e = eventos.find(x=>x.id===id);
+  if(!e) return;
+  eventoEditando = id;
+  $("#e-nombre").value = e.nombre;
+  $("#e-fecha").value = e.fecha||"";
+  $("#e-lugar").value = e.lugar||"";
+  $("#e-precio").value = e.precio;
+  $("#e-cupo").value = e.cupo;
+  imagenPendiente = null;
+  if(e.imagen){ $("#e-imagen-preview").src=e.imagen; $("#e-imagen-preview").classList.add("ver"); }
+  else{ $("#e-imagen-preview").classList.remove("ver"); }
+  $("#b-guardar-evento").textContent = "Guardar cambios";
+  $("#b-cancelar-edicion").hidden = false;
+  $("#v-eventos").scrollIntoView({behavior:"smooth"});
+}
+$("#b-cancelar-edicion").onclick = limpiarFormularioEvento;
+
+function redimensionar(archivo){
+  return new Promise((resolve,reject)=>{
+    const lector = new FileReader();
+    lector.onerror = ()=>reject();
+    lector.onload = ()=>{
+      const img = new Image();
+      img.onerror = ()=>reject();
+      img.onload = ()=>{
+        const escala = Math.min(1, 900/img.width);
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width*escala); cv.height = Math.round(img.height*escala);
+        cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+        resolve(cv.toDataURL("image/jpeg",0.82));
+      };
+      img.src = lector.result;
+    };
+    lector.readAsDataURL(archivo);
+  });
+}
+let imagenPendiente = null;
+$("#e-imagen").onchange = async e=>{
+  const archivo = e.target.files[0]; if(!archivo) return;
+  imagenPendiente = await redimensionar(archivo).catch(()=>null);
+  if(imagenPendiente){ $("#e-imagen-preview").src=imagenPendiente; $("#e-imagen-preview").classList.add("ver"); }
+};
+$("#b-guardar-evento").onclick = async ()=>{
+  const nombre = $("#e-nombre").value.trim();
+  if(!nombre){ $("#e-nombre").focus(); return; }
+  const cuerpo = {
+    nombre, fecha: $("#e-fecha").value, lugar: $("#e-lugar").value.trim(),
+    precio: Number($("#e-precio").value||0), cupo: Number($("#e-cupo").value||1),
+    imagen: imagenPendiente
+  };
+  const btn = $("#b-guardar-evento");
+  btn.disabled = true;
+  try{
+    if(eventoEditando){
+      await api("/api/eventos/"+eventoEditando, {method:"PUT", body: JSON.stringify(cuerpo)});
+    }else{
+      await api("/api/eventos", {method:"POST", body: JSON.stringify(cuerpo)});
+    }
+    await cargarEventos();
+    limpiarFormularioEvento();
+  }catch(e){
+    alert("No se pudo guardar el evento.");
+  }
+  btn.disabled = false;
+};
+
+/* ---------- Puerta ---------- */
+function mostrarResultado(tipo, titulo, texto){
+  const r = $("#resultado");
+  r.className = "resultado ver " + tipo;
+  r.querySelector("h3").textContent = titulo;
+  r.querySelector("p").textContent = texto;
+}
+async function validar(codigo){
+  const folio = String(codigo||"").trim().toUpperCase();
+  if(!folio) return;
+  const r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio})});
+  if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
+  else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
+  else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+r.folio);
+  $("#p-folio").value="";
+}
+$("#b-validar").onclick = ()=>validar($("#p-folio").value);
+$("#p-folio").addEventListener("keydown", e=>{ if(e.key==="Enter") validar(e.target.value); });
+
+let lector = null;
+$("#b-camara").onclick = async ()=>{
+  if(lector){ await lector.stop().catch(()=>{}); lector.clear(); lector=null; $("#b-camara").textContent="Usar cámara"; return; }
+  try{
+    lector = new Html5Qrcode("lector");
+    await lector.start({facingMode:"environment"}, {fps:10, qrbox:220}, texto=>validar(texto));
+    $("#b-camara").textContent="Apagar cámara";
+  }catch(e){ mostrarResultado("repetido","No se pudo abrir la cámara","Da permiso de cámara o teclea el folio."); }
+};
+
+/* ---------- Boletos ---------- */
+async function cargarBoletos(){
+  const eventoId = $("#sel-evento-boletos").value;
+  if(!eventoId){ $("#tabla-boletos").innerHTML = '<div class="vacio">Crea un evento primero.</div>'; return; }
+  const boletos = await api("/api/boletos?eventoId="+encodeURIComponent(eventoId));
+  pintarTabla(boletos);
+  $("#b-buscar").oninput = ()=>{
+    const q = $("#b-buscar").value.trim().toLowerCase();
+    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")).toLowerCase().includes(q)));
+  };
+}
+function pintarTabla(lista){
+  if(!lista.length){ $("#tabla-boletos").innerHTML = '<div class="vacio">Todavía no hay boletos para este evento.</div>'; return; }
+  $("#tabla-boletos").innerHTML = `<table><thead><tr><th>Folio</th><th>Nombre</th><th>Pago</th><th>Estado</th></tr></thead><tbody>
+    ${lista.map(b=>`<tr>
+      <td>${b.folio}</td>
+      <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar(b.contacto||"")}</div></td>
+      <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}</div></td>
+      <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+/* ---------- Venta manual ---------- */
+$("#b-registrar").onclick = async ()=>{
+  const eventoId = $("#sel-evento-vender").value;
+  if(!eventoId){ alert("Crea un evento primero."); return; }
+  const nombre = $("#c-nombre").value.trim();
+  if(!nombre){ $("#c-nombre").focus(); return; }
+  const cuerpo = {
+    eventoId, nombre, contacto: $("#c-contacto").value.trim(),
+    cantidad: parseInt($("#c-cantidad").value||1), metodo: $("#c-metodo").value
+  };
+  try{
+    const r = await api("/api/ventas-manuales", {method:"POST", body: JSON.stringify(cuerpo)});
+    const cont = $("#recien");
+    cont.innerHTML = r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
+      <h3>${escapar(b.nombre)}</h3><div class="folio">${b.folio}</div>
+      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}</div>
+    </div><div class="talon"><div class="qr" data-folio="${b.folio}"></div></div></article>`).join("");
+    cont.querySelectorAll(".qr").forEach(d=> new QRCode(d, {text:d.dataset.folio, width:100, height:100}));
+    $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-cantidad").value=1;
+    cargarEventos();
+  }catch(e){ alert("No se pudo registrar la venta (¿se llenó el cupo?)"); }
+};
+
+/* ---------- Panel ---------- */
+async function cargarPanel(){
+  const eventoId = $("#sel-evento-panel").value;
+  const p = await api("/api/panel" + (eventoId ? "?eventoId="+encodeURIComponent(eventoId) : ""));
+  $("#metricas").innerHTML = `
+    <div class="metrica"><b>${p.vendidos}</b><span>boletos vendidos</span></div>
+    <div class="metrica"><b>${pesos(p.ingresos)}</b><span>ingresos</span></div>
+    <div class="metrica"><b>${p.usados}</b><span>ya entraron</span></div>
+    <div class="metrica"><b>${Math.max(0,p.cupo-p.vendidos)}</b><span>lugares libres</span></div>`;
+  const filas = Object.entries(p.porMetodo||{}).map(([m,v])=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(m)}</span><span>${pesos(v)}</span></div>`).join("");
+  $("#metodos").innerHTML = filas || '<div style="color:var(--humo);font-size:14px">Sin ventas todavía.</div>';
+  if(p.pendientesDePago) $("#metodos").innerHTML += `<div class="ayuda" style="margin-top:10px">${p.pendientesDePago} compra(s) esperando confirmación de Mercado Pago.</div>`;
+}
+</script>
+</body>
+</html>
