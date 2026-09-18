@@ -35,7 +35,10 @@
 <div class="candado" id="candado">
   <h1 style="font-family:Anton,sans-serif;font-weight:400">Panel del organizador</h1>
   <p class="ayuda" style="max-width:none;text-align:center">Escribe la clave de administrador que pusiste en el servidor (ADMIN_KEY).</p>
-  <input id="clave" type="password" placeholder="Clave de administrador" style="margin-bottom:12px">
+  <div style="position:relative;margin-bottom:12px">
+    <input id="clave" type="password" placeholder="Clave de administrador" style="width:100%;padding-right:40px;box-sizing:border-box">
+    <button type="button" id="b-ver-clave" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px">👁</button>
+  </div>
   <button class="btn" id="b-entrar" style="width:100%">Entrar</button>
   <p class="ayuda" id="clave-error" style="color:var(--rojo);display:none;text-align:center">Clave incorrecta.</p>
 </div>
@@ -182,11 +185,16 @@ async function intentarEntrar(){
     $("#app").style.display="block";
     iniciarApp();
   }catch(e){
+    $("#clave-error").textContent = "Clave incorrecta. (" + (e && e.message ? e.message : "error desconocido") + ")";
     $("#clave-error").style.display="block";
   }
 }
 $("#b-entrar").onclick = intentarEntrar;
 $("#clave").addEventListener("keydown", e=>{ if(e.key==="Enter") intentarEntrar(); });
+$("#b-ver-clave").onclick = ()=>{
+  const campo = $("#clave");
+  campo.type = campo.type === "password" ? "text" : "password";
+};
 if(clave){ intentarEntrar(); }
 
 /* ---------- Navegación ---------- */
