@@ -42,7 +42,7 @@ function fechaCorta(iso){
   if(!iso) return "Fecha por confirmar";
   const d = new Date(iso);
   if(isNaN(d)) return "Fecha por confirmar";
-  return d.toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  return d.toLocaleString("es-MX",{day:"numeric",month:"short"});
 }
 
 async function cargar(){

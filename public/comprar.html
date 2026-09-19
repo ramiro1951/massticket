@@ -63,7 +63,7 @@ function fechaLegible(iso){
   if(!iso) return "Fecha por confirmar";
   const d = new Date(iso);
   if(isNaN(d)) return "Fecha por confirmar";
-  return d.toLocaleString("es-MX",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});
+  return d.toLocaleString("es-MX",{weekday:"long",day:"numeric",month:"long"});
 }
 
 async function cargarEvento(){

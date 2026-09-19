@@ -68,7 +68,7 @@
         </div>
       </div>
       <div class="duo">
-        <div class="campo"><label for="e-fecha">Fecha y hora</label><input id="e-fecha" type="datetime-local"></div>
+        <div class="campo"><label for="e-fecha">Fecha</label><input id="e-fecha" type="date"></div>
         <div class="campo"><label for="e-lugar">Lugar</label><input id="e-lugar" placeholder="Teatro García Carrillo, Saltillo"></div>
       </div>
       <div class="duo">
@@ -161,7 +161,7 @@ function fechaLegible(iso){
   if(!iso) return "Fecha por confirmar";
   const d = new Date(iso);
   if(isNaN(d)) return "Fecha por confirmar";
-  return d.toLocaleString("es-MX",{weekday:"long",day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});
+  return d.toLocaleString("es-MX",{weekday:"long",day:"numeric",month:"long"});
 }
 
 /* ---------- Sesión ---------- */
