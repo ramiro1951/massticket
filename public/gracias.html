@@ -13,6 +13,11 @@
 <body>
 <div class="envoltura">
   <div class="marca"><h1>mass<span>ticket</span></h1></div>
+  <nav class="menu-sitio">
+    <a href="/">Inicio</a>
+    <a href="/puntos-de-venta.html">Puntos de venta</a>
+    <a href="/contactanos.html">Contáctanos</a>
+  </nav>
   <div id="esperando">
     <h2>Confirmando tu pago…</h2>
     <p class="ayuda">Esto toma unos segundos. No cierres esta página.</p>
@@ -30,7 +35,7 @@
   </div>
 </div>
 
-<style>@media print{ .marca,.ayuda,.fila-acciones{display:none!important} }</style>
+<style>@media print{ .marca,.ayuda,.fila-acciones,.menu-sitio{display:none!important} }</style>
 
 <script>
 const $ = s => document.querySelector(s);

@@ -235,10 +235,14 @@ function pintarListaEventosAdmin(){
       <div class="acciones">
         <button class="btn claro" data-editar="${e.id}">Editar</button>
         <a class="btn claro" href="/comprar.html?evento=${encodeURIComponent(e.id)}" target="_blank">Ver página</a>
+        <button class="btn claro" data-borrar="${e.id}" style="color:var(--rojo)">Borrar</button>
       </div>
     </div>`).join("");
   cont.querySelectorAll("[data-editar]").forEach(b=>{
     b.onclick = ()=> cargarEventoParaEditar(b.dataset.editar);
+  });
+  cont.querySelectorAll("[data-borrar]").forEach(b=>{
+    b.onclick = ()=> borrarEvento(b.dataset.borrar);
   });
 }
 
@@ -253,6 +257,24 @@ function llenarSelectores(){
 }
 ["sel-evento-boletos"].forEach(id=> $("#"+id).addEventListener("change", cargarBoletos));
 $("#sel-evento-panel").addEventListener("change", cargarPanel);
+
+/* ---------- Eventos: borrar ---------- */
+async function borrarEvento(id){
+  const e = eventos.find(x=>x.id===id);
+  if(!e) return;
+  if(!confirm(`¿Seguro que quieres borrar "${e.nombre}"? Esto no se puede deshacer.`)) return;
+  try{
+    const r = await api("/api/eventos/"+id, {method:"DELETE"});
+    if(r && r.error){
+      alert(r.error);
+      return;
+    }
+    if(eventoEditando===id) limpiarFormularioEvento();
+    await cargarEventos();
+  }catch(err){
+    alert("No se pudo borrar el evento.");
+  }
+}
 
 /* ---------- Eventos: crear / editar ---------- */
 function limpiarFormularioEvento(){
