@@ -125,10 +125,19 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 // -------- Eventos: listar (público, para la página de inicio) --------
 app.get("/api/eventos", async (req, res) => {
   const db = await leerDB();
-  const lista = db.eventos.map((e) => ({
-    ...e,
-    vendidos: ocupadosDe(db, e.id),
-  }));
+  // Por defecto (la página pública) solo se muestran eventos de hoy en
+  // adelante; al día siguiente del evento deja de aparecer solo, sin que
+  // nadie tenga que borrarlo. El panel de organizador pide ?todos=1 para
+  // seguir viendo TODOS los eventos (incluidos los ya pasados), porque ahí
+  // se siguen administrando boletos y borrando eventos a mano.
+  const hoy = new Date().toISOString().slice(0, 10); // "AAAA-MM-DD"
+  const mostrarTodos = req.query.todos === "1";
+  const lista = db.eventos
+    .filter((e) => mostrarTodos || !e.fecha || e.fecha >= hoy)
+    .map((e) => ({
+      ...e,
+      vendidos: ocupadosDe(db, e.id),
+    }));
   res.json(lista);
 });
 
@@ -228,6 +237,11 @@ app.post("/api/comprar", async (req, res) => {
     const db = await leerDB();
     const evento = db.eventos.find((e) => e.id === eventoId);
     if (!evento) return res.status(404).json({ error: "Ese evento ya no está disponible" });
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    if (evento.fecha && evento.fecha < hoy) {
+      return res.status(409).json({ error: "Ese evento ya pasó, ya no se pueden comprar boletos" });
+    }
 
     if (ocupadosDe(db, eventoId) + cantidad > evento.cupo) {
       return res.status(409).json({ error: "Ya no hay cupo suficiente para esa cantidad" });
