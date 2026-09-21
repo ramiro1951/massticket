@@ -217,7 +217,7 @@ async function iniciarApp(){
 }
 
 async function cargarEventos(){
-  eventos = await api("/api/eventos");
+  eventos = await api("/api/eventos?todos=1");
   pintarListaEventosAdmin();
   llenarSelectores();
 }
