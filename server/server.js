@@ -193,6 +193,29 @@ app.delete("/api/eventos/:id", requiereAdmin, async (req, res) => {
   });
 });
 
+// -------- Limpieza única de eventos de prueba (temporal) --------
+// Para usarla: abre en el navegador
+//   https://TU-SITIO/api/admin/limpiar-prueba?key=TU_ADMIN_KEY
+// (reemplazando TU_ADMIN_KEY por la misma clave que usas para entrar al panel de organizador).
+// Es seguro: solo borra los 2 eventos de prueba de abajo (por su id exacto),
+// nunca toca ningún otro evento, pasado o futuro.
+app.get("/api/admin/limpiar-prueba", async (req, res) => {
+  if (!ADMIN_KEY || req.query.key !== ADMIN_KEY) {
+    return res.status(401).send("No autorizado");
+  }
+  const idsPrueba = [
+    "976dbaf8-f119-4583-95fe-cf38abd5f701",
+    "cf211dfc-3f37-44de-8cb0-7bbbbc07810a",
+  ];
+  await conCandado(async () => {
+    const db = await leerDB();
+    db.eventos = db.eventos.filter((e) => !idsPrueba.includes(e.id));
+    db.boletos = db.boletos.filter((b) => !idsPrueba.includes(b.eventoId));
+    await escribirDB(db);
+    res.send("Listo. Eventos de prueba borrados. Eventos restantes: " + db.eventos.length);
+  });
+});
+
 // -------- Comprar (público): crea la preferencia y devuelve el link de pago --------
 app.post("/api/comprar", async (req, res) => {
   try {
