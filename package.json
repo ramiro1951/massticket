@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Backend de massticket.mx: vende boletos, cobra con Mercado Pago (Checkout Pro) y confirma pagos por webhook.",
   "type": "module",
-  "main": "server.js",
+  "main": "server/server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
