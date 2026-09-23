@@ -12,6 +12,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { v4 as uuid } from "uuid";
 import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
+import { Resend } from "resend";
+import QRCode from "qrcode";
+import PDFDocument from "pdfkit";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // DATA_DIR apunta a una carpeta permanente (un "Volume" en Railway) para que
@@ -25,14 +28,18 @@ const {
   MP_WEBHOOK_SECRET,
   PUBLIC_URL = "http://localhost:3000",
   ADMIN_KEY,
+  RESEND_API_KEY,
+  EMAIL_FROM = "MassTicket <boletos@massticket.mx>",
   PORT = 3000,
 } = process.env;
 
 if (!MP_ACCESS_TOKEN) console.warn("⚠️  Falta MP_ACCESS_TOKEN en las variables de entorno.");
 if (!MP_WEBHOOK_SECRET) console.warn("⚠️  Falta MP_WEBHOOK_SECRET: el webhook no podrá verificar firmas.");
 if (!ADMIN_KEY) console.warn("⚠️  Falta ADMIN_KEY: el panel de organizador quedaría sin contraseña.");
+if (!RESEND_API_KEY) console.warn("⚠️  Falta RESEND_API_KEY: los boletos no se enviarán por correo automáticamente.");
 
 const mpClient = new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN });
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 /* ---------------- Almacenamiento (archivo JSON con candado simple) ---------------- */
 
@@ -112,6 +119,114 @@ function verificarFirma(req) {
     return crypto.timingSafeEqual(Buffer.from(firmaCalculada), Buffer.from(v1));
   } catch {
     return false;
+  }
+}
+
+/* ---------------- Boletos por correo (PDF con QR) ---------------- */
+
+const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+function fechaLegibleServidor(iso) {
+  if (!iso) return "Fecha por confirmar";
+  const [y, m, d] = String(iso).split("-");
+  const mi = parseInt(m, 10) - 1;
+  if (!y || !d || !MESES[mi]) return iso;
+  return `${parseInt(d, 10)} de ${MESES[mi]} de ${y}`;
+}
+
+// Arma un PDF con el cartel del evento y, por cada boleto, su folio y su
+// código QR (el mismo folio que se valida en la puerta). Devuelve el PDF
+// ya completo como Buffer, listo para adjuntar a un correo.
+async function generarPDFBoletos({ evento, boletos }) {
+  const doc = new PDFDocument({ size: "A5", margin: 28 });
+  const partes = [];
+  doc.on("data", (parte) => partes.push(parte));
+  const listo = new Promise((resolve, reject) => {
+    doc.on("end", () => resolve(Buffer.concat(partes)));
+    doc.on("error", reject);
+  });
+
+  for (let i = 0; i < boletos.length; i++) {
+    const b = boletos[i];
+    if (i > 0) doc.addPage();
+
+    if (evento?.imagen && evento.imagen.startsWith("data:image")) {
+      try {
+        const base64 = evento.imagen.split(",")[1];
+        const bufImagen = Buffer.from(base64, "base64");
+        doc.image(bufImagen, doc.page.margins.left, doc.y, {
+          fit: [doc.page.width - doc.page.margins.left - doc.page.margins.right, 160],
+          align: "center",
+        });
+        doc.moveDown(0.5);
+        doc.y = Math.max(doc.y, 190);
+      } catch {
+        // Si la imagen viene corrupta, seguimos sin ella; el boleto sigue siendo válido.
+      }
+    }
+
+    doc.fontSize(17).fillColor("#111").text(evento?.nombre || "Evento", { align: "center" });
+    doc.moveDown(0.2);
+    doc.fontSize(11).fillColor("#555").text(
+      `${fechaLegibleServidor(evento?.fecha)}  ·  ${evento?.lugar || "Lugar por confirmar"}`,
+      { align: "center" }
+    );
+    doc.moveDown(1);
+
+    doc.fontSize(13).fillColor("#111").text(`Boleto de: ${b.nombre}`, { align: "center" });
+    doc.fontSize(11).fillColor("#555").text(`Folio: ${b.folio}`, { align: "center" });
+    doc.moveDown(0.8);
+
+    const qrBuffer = await QRCode.toBuffer(b.folio, { width: 220, margin: 1 });
+    const qrAncho = 160;
+    doc.image(qrBuffer, (doc.page.width - qrAncho) / 2, doc.y, { width: qrAncho });
+    doc.y += qrAncho + 12;
+
+    doc.fontSize(9).fillColor("#888").text(
+      "Presenta este código (impreso o desde tu teléfono) en la entrada del evento.",
+      { align: "center" }
+    );
+  }
+
+  doc.end();
+  return listo;
+}
+
+// Envía por correo los boletos recién emitidos (compra en línea o venta
+// manual). No hace nada si Resend no está configurado, o si el "contacto"
+// que se guardó no parece un correo (por ejemplo, si es un teléfono).
+async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
+  if (!resend) return;
+  if (!contacto || !contacto.includes("@")) return;
+  if (!boletos || !boletos.length) return;
+  try {
+    const pdf = await generarPDFBoletos({ evento, boletos });
+    const cantidad = boletos.length;
+    await resend.emails.send({
+      from: EMAIL_FROM,
+      to: contacto,
+      subject: `Tus boleto${cantidad > 1 ? "s" : ""} para ${evento?.nombre || "tu evento"}`,
+      html: `
+        <p>Hola ${nombre || ""},</p>
+        <p>Aquí tienes tu${cantidad > 1 ? "s" : ""} boleto${cantidad > 1 ? "s" : ""} para
+        <strong>${evento?.nombre || "el evento"}</strong>
+        (${fechaLegibleServidor(evento?.fecha)}, ${evento?.lugar || "lugar por confirmar"}).</p>
+        <p>Va adjunto en PDF con tu código QR: solo muéstralo (impreso o desde tu teléfono) en la entrada.</p>
+        <p style="color:#888;font-size:12px;margin-top:24px;">
+          Este es un mensaje automático, por favor no respondas a este correo.
+        </p>
+      `,
+      attachments: [
+        {
+          filename: `boletos-${(evento?.nombre || "evento").replace(/[^a-z0-9]+/gi, "-")}.pdf`,
+          content: pdf.toString("base64"),
+        },
+      ],
+    });
+  } catch (err) {
+    console.error("Error enviando boletos por correo:", err);
   }
 }
 
@@ -332,6 +447,7 @@ app.post("/api/webhook/mercadopago", async (req, res) => {
     if (pago.status !== "approved") return;
 
     const ventaId = pago.external_reference;
+    let eventoParaCorreo, boletosParaCorreo, nombreParaCorreo, contactoParaCorreo;
     await conCandado(async () => {
       const db = await leerDB();
       const venta = db.ventas.find((v) => v.id === ventaId);
@@ -342,8 +458,9 @@ app.post("/api/webhook/mercadopago", async (req, res) => {
       venta.pagoId = pago.id;
       venta.pagadoEn = new Date().toISOString();
 
+      const nuevos = [];
       for (let i = 0; i < venta.cantidad; i++) {
-        db.boletos.push({
+        const b = {
           folio: folioNuevo(db.boletos.length + 1),
           eventoId: venta.eventoId,
           ventaId: venta.id,
@@ -354,10 +471,26 @@ app.post("/api/webhook/mercadopago", async (req, res) => {
           estado: "valido",
           creado: new Date().toISOString(),
           usadoEn: null,
-        });
+        };
+        db.boletos.push(b);
+        nuevos.push(b);
       }
       await escribirDB(db);
+
+      eventoParaCorreo = db.eventos.find((e) => e.id === venta.eventoId) || null;
+      boletosParaCorreo = nuevos;
+      nombreParaCorreo = venta.nombre;
+      contactoParaCorreo = venta.contacto;
     });
+
+    if (eventoParaCorreo && boletosParaCorreo?.length) {
+      await enviarBoletosPorEmail({
+        evento: eventoParaCorreo,
+        nombre: nombreParaCorreo,
+        contacto: contactoParaCorreo,
+        boletos: boletosParaCorreo,
+      });
+    }
   } catch (err) {
     console.error("Error procesando webhook:", err);
   }
@@ -372,6 +505,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   const metodo = String(req.body?.metodo || "Efectivo");
   if (!nombre) return res.status(400).json({ error: "Falta el nombre" });
 
+  let eventoParaCorreo, boletosParaCorreo;
   await conCandado(async () => {
     const db = await leerDB();
     const evento = db.eventos.find((e) => e.id === eventoId);
@@ -398,8 +532,16 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
       nuevos.push(b);
     }
     await escribirDB(db);
+    eventoParaCorreo = evento;
+    boletosParaCorreo = nuevos;
     res.json({ boletos: nuevos });
   });
+
+  // Se envía después de responder, para no hacer esperar al organizador
+  // mientras se genera el PDF y se manda el correo.
+  if (eventoParaCorreo && boletosParaCorreo) {
+    enviarBoletosPorEmail({ evento: eventoParaCorreo, nombre, contacto, boletos: boletosParaCorreo });
+  }
 });
 
 // -------- Admin: listar boletos (opcionalmente filtrados por evento) --------
