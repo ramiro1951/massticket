@@ -423,6 +423,53 @@ app.get("/api/venta/:id", async (req, res) => {
   res.json({ estado: venta.estado, evento, boletos });
 });
 
+// Aplica un pago YA APROBADO de Mercado Pago a una venta pendiente: la marca
+// como pagada y emite sus boletos. La usan tanto el webhook (apenas llega el
+// aviso) como la reconciliación manual del panel (por si el webhook se
+// perdió, por ejemplo porque el sitio estaba caído justo en ese momento).
+// Devuelve los datos para el correo, o null si no había nada que hacer
+// (venta no encontrada, o ya se había procesado antes).
+async function aplicarPagoAprobado(ventaId, pago) {
+  let resultado = null;
+  await conCandado(async () => {
+    const db = await leerDB();
+    const venta = db.ventas.find((v) => v.id === ventaId);
+    if (!venta) return;
+    if (venta.estado === "pagado") return; // idempotencia: ya se procesó este pago
+
+    venta.estado = "pagado";
+    venta.pagoId = pago.id;
+    venta.pagadoEn = new Date().toISOString();
+
+    const nuevos = [];
+    for (let i = 0; i < venta.cantidad; i++) {
+      const b = {
+        folio: folioNuevo(db.boletos.length + 1),
+        eventoId: venta.eventoId,
+        ventaId: venta.id,
+        nombre: venta.nombre,
+        contacto: venta.contacto,
+        metodo: "Mercado Pago",
+        precio: venta.precioUnit,
+        estado: "valido",
+        creado: new Date().toISOString(),
+        usadoEn: null,
+      };
+      db.boletos.push(b);
+      nuevos.push(b);
+    }
+    await escribirDB(db);
+
+    resultado = {
+      evento: db.eventos.find((e) => e.id === venta.eventoId) || null,
+      boletos: nuevos,
+      nombre: venta.nombre,
+      contacto: venta.contacto,
+    };
+  });
+  return resultado;
+}
+
 // -------- Webhook de Mercado Pago: única fuente de verdad del pago --------
 app.post("/api/webhook/mercadopago", async (req, res) => {
   // Responder rápido evita reintentos innecesarios de Mercado Pago;
@@ -446,53 +493,68 @@ app.post("/api/webhook/mercadopago", async (req, res) => {
 
     if (pago.status !== "approved") return;
 
-    const ventaId = pago.external_reference;
-    let eventoParaCorreo, boletosParaCorreo, nombreParaCorreo, contactoParaCorreo;
-    await conCandado(async () => {
-      const db = await leerDB();
-      const venta = db.ventas.find((v) => v.id === ventaId);
-      if (!venta) return;
-      if (venta.estado === "pagado") return; // idempotencia: ya se procesó este pago
-
-      venta.estado = "pagado";
-      venta.pagoId = pago.id;
-      venta.pagadoEn = new Date().toISOString();
-
-      const nuevos = [];
-      for (let i = 0; i < venta.cantidad; i++) {
-        const b = {
-          folio: folioNuevo(db.boletos.length + 1),
-          eventoId: venta.eventoId,
-          ventaId: venta.id,
-          nombre: venta.nombre,
-          contacto: venta.contacto,
-          metodo: "Mercado Pago",
-          precio: venta.precioUnit,
-          estado: "valido",
-          creado: new Date().toISOString(),
-          usadoEn: null,
-        };
-        db.boletos.push(b);
-        nuevos.push(b);
-      }
-      await escribirDB(db);
-
-      eventoParaCorreo = db.eventos.find((e) => e.id === venta.eventoId) || null;
-      boletosParaCorreo = nuevos;
-      nombreParaCorreo = venta.nombre;
-      contactoParaCorreo = venta.contacto;
-    });
-
-    if (eventoParaCorreo && boletosParaCorreo?.length) {
+    const resultado = await aplicarPagoAprobado(pago.external_reference, pago);
+    if (resultado?.evento && resultado.boletos?.length) {
       await enviarBoletosPorEmail({
-        evento: eventoParaCorreo,
-        nombre: nombreParaCorreo,
-        contacto: contactoParaCorreo,
-        boletos: boletosParaCorreo,
+        evento: resultado.evento,
+        nombre: resultado.nombre,
+        contacto: resultado.contacto,
+        boletos: resultado.boletos,
       });
     }
   } catch (err) {
     console.error("Error procesando webhook:", err);
+  }
+});
+
+// -------- Admin: revisar con Mercado Pago las ventas "pendientes" --------
+// Por si el aviso automático (webhook) nunca llegó -por ejemplo si el sitio
+// estaba caído justo en ese momento-, esto le pregunta a Mercado Pago,
+// venta por venta, si en realidad ya está aprobada. Las que sí lo están se
+// confirman aquí también: se emiten sus boletos y se manda el correo con el
+// PDF, exactamente igual que si el webhook hubiera funcionado a tiempo.
+app.post("/api/admin/reconciliar-pagos", requiereAdmin, async (req, res) => {
+  try {
+    const db = await leerDB();
+    const pendientes = db.ventas.filter((v) => v.estado === "pendiente");
+    const paymentApi = new Payment(mpClient);
+    const confirmadas = [];
+    const sinCambio = [];
+
+    for (const venta of pendientes) {
+      try {
+        const busqueda = await paymentApi.search({
+          options: { external_reference: venta.id },
+        });
+        const pago = (busqueda.results || []).find((p) => p.status === "approved");
+        if (!pago) {
+          sinCambio.push({ nombre: venta.nombre });
+          continue;
+        }
+        const resultado = await aplicarPagoAprobado(venta.id, pago);
+        if (resultado?.evento && resultado.boletos?.length) {
+          await enviarBoletosPorEmail({
+            evento: resultado.evento,
+            nombre: resultado.nombre,
+            contacto: resultado.contacto,
+            boletos: resultado.boletos,
+          });
+          confirmadas.push({
+            nombre: resultado.nombre,
+            evento: resultado.evento?.nombre || "",
+            boletos: resultado.boletos.length,
+          });
+        }
+      } catch (err) {
+        console.error("Error reconciliando venta", venta.id, err);
+        sinCambio.push({ nombre: venta.nombre, error: true });
+      }
+    }
+
+    res.json({ revisadas: pendientes.length, confirmadas, sinCambio });
+  } catch (err) {
+    console.error("Error en reconciliación de pagos:", err);
+    res.status(500).json({ error: "No se pudo revisar los pagos pendientes." });
   }
 });
 
