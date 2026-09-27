@@ -43,11 +43,12 @@
 const $ = s => document.querySelector(s);
 function pesos(n){ return "$" + Number(n||0).toLocaleString("es-MX"); }
 function escapar(t){ return String(t??"").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
+const MESES_CORTO = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 function fechaCorta(iso){
   if(!iso) return "Fecha por confirmar";
-  const d = new Date(iso);
-  if(isNaN(d)) return "Fecha por confirmar";
-  return d.toLocaleString("es-MX",{day:"numeric",month:"short"});
+  const [y,m,d] = String(iso).split("-").map(Number);
+  if(!y||!m||!d) return "Fecha por confirmar";
+  return `${d} ${MESES_CORTO[m-1]}`;
 }
 
 async function cargar(){
