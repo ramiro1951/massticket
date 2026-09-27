@@ -441,7 +441,32 @@ async function cargarPanel(){
     <div class="metrica"><b>${Math.max(0,p.cupo-p.vendidos)}</b><span>lugares libres</span></div>`;
   const filas = Object.entries(p.porMetodo||{}).map(([m,v])=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(m)}</span><span>${pesos(v)}</span></div>`).join("");
   $("#metodos").innerHTML = filas || '<div style="color:var(--humo);font-size:14px">Sin ventas todavía.</div>';
-  if(p.pendientesDePago) $("#metodos").innerHTML += `<div class="ayuda" style="margin-top:10px">${p.pendientesDePago} compra(s) esperando confirmación de Mercado Pago.</div>`;
+  if(p.pendientesDePago){
+    $("#metodos").innerHTML += `<div class="ayuda" style="margin-top:10px">${p.pendientesDePago} compra(s) esperando confirmación de Mercado Pago.
+      <button id="b-reconciliar" style="margin-left:8px">Revisar con Mercado Pago</button>
+      <div id="reconciliar-resultado" style="margin-top:8px"></div>
+    </div>`;
+    $("#b-reconciliar").onclick = async ()=>{
+      const btn = $("#b-reconciliar");
+      const salida = $("#reconciliar-resultado");
+      btn.disabled = true; btn.textContent = "Revisando...";
+      try{
+        const r = await api("/api/admin/reconciliar-pagos", {method:"POST"});
+        let html = `<div>Se revisaron ${r.revisadas} compra(s) pendiente(s).</div>`;
+        if(r.confirmadas?.length){
+          html += `<div style="color:var(--ambar);margin-top:6px">Confirmadas y boletos enviados:</div>`;
+          html += r.confirmadas.map(c=>`<div>• ${escapar(c.nombre)} — ${escapar(c.evento)} (${c.boletos} boleto/s)</div>`).join("");
+        } else {
+          html += `<div style="margin-top:6px;color:var(--humo)">Ninguna de las pendientes aparece aprobada todavía en Mercado Pago.</div>`;
+        }
+        salida.innerHTML = html + `<div style="margin-top:6px;color:var(--humo);font-size:12.5px">Cambia de pestaña y regresa a "Panel" para ver los totales actualizados.</div>`;
+      }catch(e){
+        salida.innerHTML = `<div style="color:var(--rojo)">No se pudo revisar. Intenta de nuevo.</div>`;
+      }finally{
+        btn.disabled = false; btn.textContent = "Revisar con Mercado Pago";
+      }
+    };
+  }
 }
 </script>
 </body>
