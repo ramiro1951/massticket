@@ -40,15 +40,21 @@
         </div>
       </div>
       <div class="campo">
+        <label for="c-telefono">Celular (opcional, para WhatsApp)</label>
+        <input id="c-telefono" type="tel" placeholder="844 123 4567" autocomplete="tel">
+      </div>
+      <div class="campo">
         <label for="c-cantidad">Boletos</label>
         <input id="c-cantidad" type="number" min="1" max="10" value="1">
       </div>
       <div class="fila-acciones">
         <button class="btn" id="b-comprar">Pagar con Mercado Pago</button>
+        <button class="btn claro" id="b-whatsapp" type="button">Comprar por WhatsApp</button>
         <div class="total" id="c-total">$0</div>
       </div>
     </div>
     <p class="ayuda" style="margin-top:14px">Al pagar te llevamos a la página segura de Mercado Pago. Cuando termines, regresas aquí automáticamente y tus boletos con QR quedan listos.</p>
+    <p class="ayuda">¿Prefieres pagar por WhatsApp? Escríbenos con el botón de arriba y coordinamos tu compra directamente.</p>
   </div>
 
   <div id="no-encontrado" style="display:none">
@@ -113,6 +119,7 @@ function mostrarError(msg){
 $("#b-comprar").onclick = async ()=>{
   const nombre = $("#c-nombre").value.trim();
   const contacto = $("#c-contacto").value.trim();
+  const telefono = $("#c-telefono").value.trim();
   const cantidad = Math.max(1, Math.min(10, parseInt($("#c-cantidad").value||1)));
   if(!nombre){ $("#c-nombre").focus(); mostrarError("Escribe el nombre de quien asiste."); return; }
 
@@ -121,7 +128,7 @@ $("#b-comprar").onclick = async ()=>{
   try{
     const r = await fetch("/api/comprar", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({eventoId, nombre, contacto, cantidad})
+      body: JSON.stringify({eventoId, nombre, contacto, telefono, cantidad})
     });
     const datos = await r.json();
     if(!r.ok){ mostrarError(datos.error || "No se pudo iniciar el pago."); btn.disabled=false; btn.textContent="Pagar con Mercado Pago"; return; }
@@ -130,6 +137,22 @@ $("#b-comprar").onclick = async ()=>{
     mostrarError("No hay conexión con el servidor. Intenta de nuevo.");
     btn.disabled = false; btn.textContent = "Pagar con Mercado Pago";
   }
+};
+
+/* ---------- Comprar por WhatsApp ---------- */
+// El "1" después de "52" es un detalle de cómo WhatsApp reconoce los
+// números celulares de México; sin él, el enlace no abre el chat correcto.
+const WHATSAPP_NUMERO = "5218141309248"; // +52 81 4130 9248
+$("#b-whatsapp").onclick = ()=>{
+  const nombre = $("#c-nombre").value.trim();
+  if(!nombre){ $("#c-nombre").focus(); mostrarError("Escribe el nombre de quien asiste."); return; }
+  const cantidad = Math.max(1, Math.min(10, parseInt($("#c-cantidad").value||1)));
+  const nombreEvento = evento?.nombre || "el evento";
+  const fecha = evento ? fechaLegible(evento.fecha) : "";
+  let texto = `Hola, quiero comprar ${cantidad} boleto${cantidad>1?"s":""} para ${nombreEvento}`;
+  if(fecha) texto += ` (${fecha})`;
+  texto += `. Mi nombre es ${nombre}.`;
+  window.open(`https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(texto)}`, "_blank");
 };
 
 cargarEvento();
