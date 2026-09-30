@@ -52,6 +52,7 @@
     <button role="tab" data-vista="boletos" aria-selected="false">Boletos</button>
     <button role="tab" data-vista="vender" aria-selected="false">Venta manual</button>
     <button role="tab" data-vista="panel" aria-selected="false">Panel</button>
+    <button role="tab" data-vista="clientes" aria-selected="false">Clientes</button>
   </nav>
 
   <!-- EVENTOS -->
@@ -159,6 +160,17 @@
       <div id="metodos"></div>
     </div>
   </section>
+
+  <!-- CLIENTES -->
+  <section class="vista" id="v-clientes">
+    <h2>Clientes</h2>
+    <p class="ayuda">Todas las personas que han comprado boletos, juntando todos sus boletos de todos los eventos.</p>
+    <div class="fila-acciones" style="margin-bottom:12px">
+      <button class="btn claro" id="b-clientes-csv">Descargar CSV</button>
+    </div>
+    <div class="campo"><input id="cl-buscar" placeholder="Buscar por nombre, correo o teléfono…"></div>
+    <div id="tabla-clientes" style="margin-top:14px"></div>
+  </section>
 </div>
 
 <script>
@@ -216,6 +228,7 @@ document.querySelectorAll("nav button").forEach(b=>{
     $("#v-"+b.dataset.vista).classList.add("activa");
     if(b.dataset.vista==="boletos") cargarBoletos();
     if(b.dataset.vista==="panel") cargarPanel();
+    if(b.dataset.vista==="clientes") cargarClientes();
   };
 });
 
@@ -536,6 +549,50 @@ async function cargarPanel(){
     };
   }
 }
+
+/* ---------- Clientes ---------- */
+let clientes = [];
+async function cargarClientes(){
+  clientes = await api("/api/clientes");
+  pintarClientes(clientes);
+  $("#cl-buscar").oninput = ()=>{
+    const q = $("#cl-buscar").value.trim().toLowerCase();
+    pintarClientes(clientes.filter(c=>!q || (c.nombre+c.email+c.telefono).toLowerCase().includes(q)));
+  };
+}
+function fechaHoraLegible(iso){
+  if(!iso) return "—";
+  const d = new Date(iso);
+  if(isNaN(d)) return "—";
+  return d.toLocaleDateString("es-MX",{day:"numeric",month:"short",year:"numeric"});
+}
+function pintarClientes(lista){
+  const cont = $("#tabla-clientes");
+  if(!lista.length){ cont.innerHTML = '<div class="vacio">Todavía no hay boletos vendidos.</div>'; return; }
+  cont.innerHTML = `<table><thead><tr>
+      <th>Nombre</th><th>Contacto</th><th>Boletos</th><th>Eventos</th><th>Gastado</th><th>Última compra</th>
+    </tr></thead><tbody>
+    ${lista.map(c=>`<tr>
+      <td>${escapar(c.nombre||"(sin nombre)")}</td>
+      <td>${escapar([c.email,c.telefono].filter(Boolean).join(" · ")||"—")}</td>
+      <td>${c.boletos}</td>
+      <td>${c.eventos}</td>
+      <td>${pesos(c.gastado)}</td>
+      <td>${fechaHoraLegible(c.ultimaCompra)}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+$("#b-clientes-csv").onclick = ()=>{
+  const encabezados = ["Nombre","Correo","Teléfono","Boletos comprados","Eventos","Total gastado","Primera compra","Última compra"];
+  const filas = clientes.map(c=>[c.nombre,c.email,c.telefono,c.boletos,c.eventos,c.gastado,c.primeraCompra,c.ultimaCompra]);
+  const escaparCSV = v => `"${String(v??"").replace(/"/g,'""')}"`;
+  const csv = [encabezados, ...filas].map(f=>f.map(escaparCSV).join(",")).join("\r\n");
+  const blob = new Blob(["﻿"+csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "clientes-massticket.csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 </script>
 </body>
 </html>
