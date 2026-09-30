@@ -76,13 +76,28 @@ function folioNuevo(i) {
   return "MT-" + s + "-" + String(i).padStart(4, "0");
 }
 
-// Cuántos lugares ya están tomados de un evento: boletos ya emitidos
-// más ventas pendientes de pago (para no vender de más mientras alguien
-// todavía está pagando en Mercado Pago).
+// Cuánto tiempo se le reserva el lugar a alguien que fue a pagar a Mercado
+// Pago pero todavía no confirma: pasado esto, si nunca volvió, se asume que
+// abandonó la compra y su lugar deja de estar "apartado" (aunque la venta
+// siga viéndose como "pendiente" en el panel, para que quede el registro).
+// Si de verdad completa el pago después de esto, el webhook lo confirma
+// igual y se le emite su boleto -no se pierde el pago, solo deja de tapar
+// el cupo de otros mientras tanto.
+const VENTANA_RESERVA_MS = 45 * 60 * 1000; // 45 minutos
+
+// Cuántos lugares ya están tomados de un evento: boletos ya emitidos más
+// ventas pendientes de pago RECIENTES (para no vender de más mientras
+// alguien todavía está pagando en Mercado Pago, sin dejar bloqueado el
+// cupo para siempre por gente que nunca terminó de pagar).
 function ocupadosDe(db, eventoId) {
+  const ahora = Date.now();
   const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId).length;
   const enPendientes = db.ventas
-    .filter((v) => v.eventoId === eventoId && v.estado === "pendiente")
+    .filter((v) => {
+      if (v.eventoId !== eventoId || v.estado !== "pendiente") return false;
+      const creado = v.creado ? new Date(v.creado).getTime() : 0;
+      return ahora - creado < VENTANA_RESERVA_MS;
+    })
     .reduce((s, v) => s + v.cantidad, 0);
   return enBoletos + enPendientes;
 }
