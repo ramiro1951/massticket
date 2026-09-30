@@ -632,6 +632,60 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   }
 });
 
+// -------- Admin: clientes (junta todos los boletos por comprador) --------
+// Agrupa por correo si hay uno; si no, por teléfono; si tampoco hay eso,
+// por nombre (mejor esfuerzo -dos personas con el mismo nombre y sin
+// correo ni teléfono se verían como una sola, pero es un caso raro).
+app.get("/api/clientes", requiereAdmin, async (req, res) => {
+  const db = await leerDB();
+  const esEmail = (s) => String(s || "").includes("@");
+  const grupos = new Map();
+
+  for (const b of db.boletos) {
+    const contacto = String(b.contacto || "").trim();
+    const email = esEmail(contacto) ? contacto.toLowerCase() : "";
+    const telefono = String(b.telefono || "").trim() || (contacto && !esEmail(contacto) ? contacto : "");
+    const clave = email || telefono.replace(/\D/g, "") || "nombre:" + String(b.nombre || "").trim().toLowerCase();
+
+    if (!grupos.has(clave)) {
+      grupos.set(clave, {
+        nombre: b.nombre || "",
+        email: "",
+        telefono: "",
+        boletos: 0,
+        gastado: 0,
+        eventos: new Set(),
+        primeraCompra: b.creado || "",
+        ultimaCompra: b.creado || "",
+      });
+    }
+    const g = grupos.get(clave);
+    g.boletos += 1;
+    g.gastado += Number(b.precio || 0);
+    if (b.eventoId) g.eventos.add(b.eventoId);
+    if (!g.email && email) g.email = email;
+    if (!g.telefono && telefono) g.telefono = telefono;
+    if (b.nombre && b.nombre.length > g.nombre.length) g.nombre = b.nombre;
+    if (b.creado && (!g.ultimaCompra || b.creado > g.ultimaCompra)) g.ultimaCompra = b.creado;
+    if (b.creado && (!g.primeraCompra || b.creado < g.primeraCompra)) g.primeraCompra = b.creado;
+  }
+
+  const lista = [...grupos.values()]
+    .map((g) => ({
+      nombre: g.nombre,
+      email: g.email,
+      telefono: g.telefono,
+      boletos: g.boletos,
+      eventos: g.eventos.size,
+      gastado: g.gastado,
+      primeraCompra: g.primeraCompra,
+      ultimaCompra: g.ultimaCompra,
+    }))
+    .sort((a, b) => (b.ultimaCompra || "").localeCompare(a.ultimaCompra || ""));
+
+  res.json(lista);
+});
+
 // -------- Admin: listar boletos (opcionalmente filtrados por evento) --------
 app.get("/api/boletos", requiereAdmin, async (req, res) => {
   const db = await leerDB();
