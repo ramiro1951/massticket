@@ -369,6 +369,7 @@ app.post("/api/comprar", async (req, res) => {
     const eventoId = String(req.body?.eventoId || "");
     const nombre = String(req.body?.nombre || "").trim();
     const contacto = String(req.body?.contacto || "").trim();
+    const telefono = String(req.body?.telefono || "").trim();
     const cantidad = Math.max(1, Math.min(20, parseInt(req.body?.cantidad) || 1));
     if (!nombre) return res.status(400).json({ error: "Falta el nombre de quien compra" });
 
@@ -420,6 +421,7 @@ app.post("/api/comprar", async (req, res) => {
         eventoId,
         nombre,
         contacto,
+        telefono,
         cantidad,
         precioUnit: precio,
         preferenceId: resultado.id,
@@ -472,6 +474,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
         ventaId: venta.id,
         nombre: venta.nombre,
         contacto: venta.contacto,
+        telefono: venta.telefono || "",
         metodo: "Mercado Pago",
         precio: venta.precioUnit,
         estado: "valido",
