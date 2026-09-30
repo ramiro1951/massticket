@@ -461,7 +461,7 @@ async function cargarBoletos(){
   pintarTabla(boletos);
   $("#b-buscar").oninput = ()=>{
     const q = $("#b-buscar").value.trim().toLowerCase();
-    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")).toLowerCase().includes(q)));
+    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")+(b.telefono||"")).toLowerCase().includes(q)));
   };
 }
 function pintarTabla(lista){
@@ -469,7 +469,7 @@ function pintarTabla(lista){
   $("#tabla-boletos").innerHTML = `<table><thead><tr><th>Folio</th><th>Nombre</th><th>Pago</th><th>Estado</th></tr></thead><tbody>
     ${lista.map(b=>`<tr>
       <td>${b.folio}</td>
-      <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar(b.contacto||"")}</div></td>
+      <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div></td>
       <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}</div></td>
       <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
     </tr>`).join("")}</tbody></table>`;
