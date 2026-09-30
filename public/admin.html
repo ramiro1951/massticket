@@ -366,7 +366,17 @@ function mostrarResultado(tipo, titulo, texto){
 async function validar(codigo){
   const folio = String(codigo||"").trim().toUpperCase();
   if(!folio) return;
-  const r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio})});
+  let r;
+  try{
+    r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio})});
+  }catch(e){
+    mostrarResultado("malo","No se pudo validar","No hay conexión con el servidor. NO se registró la entrada de "+folio+". Intenta de nuevo antes de dejarlo/a pasar.");
+    return;
+  }
+  if(!r){
+    mostrarResultado("malo","No se pudo validar","Respuesta vacía del servidor. Intenta de nuevo antes de dejarlo/a pasar.");
+    return;
+  }
   if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
   else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
   else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+r.folio);
