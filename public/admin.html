@@ -80,6 +80,10 @@
         <button class="btn claro" id="b-cancelar-edicion" hidden>Cancelar edición</button>
       </div>
     </div>
+    <div class="fila-acciones" style="margin-top:22px">
+      <button class="btn" id="b-eventos-proximos">Próximos</button>
+      <button class="btn claro" id="b-eventos-pasados">Pasados</button>
+    </div>
     <div class="lista-eventos-admin" id="lista-eventos-admin"></div>
   </section>
 
@@ -105,6 +109,10 @@
   <!-- BOLETOS -->
   <section class="vista" id="v-boletos">
     <h2>Boletos emitidos</h2>
+    <div class="fila-acciones" style="margin-bottom:12px">
+      <button class="btn" id="b-boletos-actuales">Eventos actuales</button>
+      <button class="btn claro" id="b-boletos-pasados">Eventos pasados</button>
+    </div>
     <div class="selector-evento">
       <label for="sel-evento-boletos">Evento:</label>
       <select id="sel-evento-boletos"></select>
@@ -214,6 +222,12 @@ document.querySelectorAll("nav button").forEach(b=>{
 /* ---------- Estado general ---------- */
 let eventos = [];
 let eventoEditando = null; // id del evento que se está editando, o null si es uno nuevo
+let verEventosPasados = false; // toggle de la lista de eventos (Próximos/Pasados)
+let verBoletosPasados = false; // toggle del selector de eventos en Boletos
+function esPasado(e){
+  const hoy = new Date().toISOString().slice(0,10);
+  return !!(e.fecha && e.fecha < hoy);
+}
 
 async function iniciarApp(){
   await cargarEventos();
@@ -227,8 +241,12 @@ async function cargarEventos(){
 
 function pintarListaEventosAdmin(){
   const cont = $("#lista-eventos-admin");
-  if(!eventos.length){ cont.innerHTML = '<div class="vacio">Todavía no has creado ningún evento.</div>'; return; }
-  cont.innerHTML = eventos.map(e=>`
+  const lista = eventos.filter(e => verEventosPasados ? esPasado(e) : !esPasado(e));
+  if(!lista.length){
+    cont.innerHTML = `<div class="vacio">${verEventosPasados ? "No hay eventos pasados todavía." : "No tienes eventos próximos. Crea uno arriba."}</div>`;
+    return;
+  }
+  cont.innerHTML = lista.map(e=>`
     <div class="fila-evento">
       ${e.imagen ? `<img src="${e.imagen}" alt="">` : `<img alt="">`}
       <div>
@@ -249,17 +267,57 @@ function pintarListaEventosAdmin(){
   });
 }
 
+function opcionesDe(lista){
+  return lista.map(e=>`<option value="${e.id}">${escapar(e.nombre)}</option>`).join("");
+}
 function llenarSelectores(){
-  const opciones = eventos.map(e=>`<option value="${e.id}">${escapar(e.nombre)}</option>`).join("");
-  for(const id of ["sel-evento-puerta","sel-evento-boletos","sel-evento-vender"]){
+  // Puerta y Venta manual: solo tiene sentido con eventos que aún no pasaron.
+  const actuales = eventos.filter(e=>!esPasado(e));
+  const opcionesActuales = opcionesDe(actuales);
+  for(const id of ["sel-evento-puerta","sel-evento-vender"]){
     const previo = $("#"+id).value;
-    $("#"+id).innerHTML = opciones || '<option value="">Crea un evento primero</option>';
-    if(previo && eventos.some(e=>e.id===previo)) $("#"+id).value = previo;
+    $("#"+id).innerHTML = opcionesActuales || '<option value="">Crea un evento primero</option>';
+    if(previo && actuales.some(e=>e.id===previo)) $("#"+id).value = previo;
   }
-  $("#sel-evento-panel").innerHTML = '<option value="">Todos los eventos</option>' + opciones;
+  // Boletos: según el botón elegido (Actuales/Pasados).
+  const listaBoletos = eventos.filter(e => verBoletosPasados ? esPasado(e) : !esPasado(e));
+  const opcionesBoletos = opcionesDe(listaBoletos);
+  const previoBoletos = $("#sel-evento-boletos").value;
+  $("#sel-evento-boletos").innerHTML = opcionesBoletos || `<option value="">${verBoletosPasados ? "No hay eventos pasados todavía" : "No hay eventos actuales"}</option>`;
+  if(previoBoletos && listaBoletos.some(e=>e.id===previoBoletos)) $("#sel-evento-boletos").value = previoBoletos;
+
+  $("#sel-evento-panel").innerHTML = '<option value="">Todos los eventos</option>' + opcionesDe(eventos);
 }
 ["sel-evento-boletos"].forEach(id=> $("#"+id).addEventListener("change", cargarBoletos));
 $("#sel-evento-panel").addEventListener("change", cargarPanel);
+
+/* ---------- Toggles: Eventos (Próximos/Pasados) y Boletos (Actuales/Pasados) ---------- */
+function marcarActivo(btnActivo, btnInactivo){
+  btnActivo.className = "btn";
+  btnInactivo.className = "btn claro";
+}
+$("#b-eventos-proximos").onclick = ()=>{
+  verEventosPasados = false;
+  marcarActivo($("#b-eventos-proximos"), $("#b-eventos-pasados"));
+  pintarListaEventosAdmin();
+};
+$("#b-eventos-pasados").onclick = ()=>{
+  verEventosPasados = true;
+  marcarActivo($("#b-eventos-pasados"), $("#b-eventos-proximos"));
+  pintarListaEventosAdmin();
+};
+$("#b-boletos-actuales").onclick = ()=>{
+  verBoletosPasados = false;
+  marcarActivo($("#b-boletos-actuales"), $("#b-boletos-pasados"));
+  llenarSelectores();
+  cargarBoletos();
+};
+$("#b-boletos-pasados").onclick = ()=>{
+  verBoletosPasados = true;
+  marcarActivo($("#b-boletos-pasados"), $("#b-boletos-actuales"));
+  llenarSelectores();
+  cargarBoletos();
+};
 
 /* ---------- Eventos: borrar ---------- */
 async function borrarEvento(id){
