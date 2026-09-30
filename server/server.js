@@ -252,7 +252,15 @@ app.get("/api/eventos", async (req, res) => {
     .map((e) => ({
       ...e,
       vendidos: ocupadosDe(db, e.id),
-    }));
+    }))
+    // Orden cronológico: el evento más próximo primero. Los que no tienen
+    // fecha todavía ("por confirmar") se van al final, no al principio.
+    .sort((a, b) => {
+      if (!a.fecha && !b.fecha) return 0;
+      if (!a.fecha) return 1;
+      if (!b.fecha) return -1;
+      return a.fecha.localeCompare(b.fecha);
+    });
   res.json(lista);
 });
 
