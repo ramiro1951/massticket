@@ -584,14 +584,23 @@ app.post("/api/admin/reconciliar-pagos", requiereAdmin, async (req, res) => {
   }
 });
 
-// -------- Admin: venta manual (efectivo/cortesía en puerta) --------
+// -------- Admin: venta manual (efectivo/cortesía/promoción en puerta) --------
 app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   const eventoId = String(req.body?.eventoId || "");
   const nombre = String(req.body?.nombre || "").trim();
   const contacto = String(req.body?.contacto || "").trim();
-  const cantidad = Math.max(1, Math.min(20, parseInt(req.body?.cantidad) || 1));
+  // Tope de 100: suficiente para una promoción o venta por mayoreo, sin
+  // dejar que un error de dedo registre una cantidad absurda por accidente.
+  const cantidad = Math.max(1, Math.min(100, parseInt(req.body?.cantidad) || 1));
   const metodo = String(req.body?.metodo || "Efectivo");
   if (!nombre) return res.status(400).json({ error: "Falta el nombre" });
+
+  // Precio especial opcional (por ejemplo, una promoción de mayoreo a un
+  // precio menor al del evento). Si se deja vacío, se usa el precio normal
+  // del evento como siempre; "Cortesía" siempre es gratis sin importar lo
+  // que se haya escrito aquí.
+  const precioManualTexto = String(req.body?.precioManual ?? "").trim();
+  const precioManual = precioManualTexto === "" ? null : Math.max(0, Number(precioManualTexto) || 0);
 
   let eventoParaCorreo, boletosParaCorreo;
   await conCandado(async () => {
@@ -601,7 +610,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
     if (ocupadosDe(db, eventoId) + cantidad > evento.cupo) {
       return res.status(409).json({ error: "Ya no hay cupo" });
     }
-    const precio = metodo === "Cortesía" ? 0 : Number(evento.precio) || 0;
+    const precio = metodo === "Cortesía" ? 0 : (precioManual !== null ? precioManual : Number(evento.precio) || 0);
     const nuevos = [];
     for (let i = 0; i < cantidad; i++) {
       const b = {
