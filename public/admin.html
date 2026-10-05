@@ -311,7 +311,7 @@ function llenarSelectores(){
   // Panel: según el botón elegido (Actuales/Pasados); "Todos" suma todo en ambos casos.
   const listaPanel = eventos.filter(e => verPanelPasados ? esPasado(e) : !esPasado(e));
   const previoPanel = $("#sel-evento-panel").value;
-  $("#sel-evento-panel").innerHTML = '<option value="">Todos los eventos</option>' + opcionesDe(listaPanel);
+  $("#sel-evento-panel").innerHTML = `<option value="">${verPanelPasados ? "Todos los eventos pasados" : "Todos los eventos actuales"}</option>` + opcionesDe(listaPanel);
   if(previoPanel && listaPanel.some(e=>e.id===previoPanel)) $("#sel-evento-panel").value = previoPanel;
 }
 ["sel-evento-boletos"].forEach(id=> $("#"+id).addEventListener("change", cargarBoletos));
@@ -540,7 +540,10 @@ $("#b-registrar").onclick = async ()=>{
 /* ---------- Panel ---------- */
 async function cargarPanel(){
   const eventoId = $("#sel-evento-panel").value;
-  const p = await api("/api/panel" + (eventoId ? "?eventoId="+encodeURIComponent(eventoId) : ""));
+  // "Todos los eventos" suma solo el grupo que se está viendo (actuales o pasados).
+  const idsGrupo = eventos.filter(e => verPanelPasados ? esPasado(e) : !esPasado(e)).map(e=>e.id);
+  const consulta = eventoId ? "?eventoId="+encodeURIComponent(eventoId) : "?eventoIds="+encodeURIComponent(idsGrupo.join(","));
+  const p = await api("/api/panel" + consulta);
   $("#metricas").innerHTML = `
     <div class="metrica"><b>${p.vendidos}</b><span>boletos vendidos</span></div>
     <div class="metrica"><b>${pesos(p.ingresos)}</b><span>ingresos</span></div>
