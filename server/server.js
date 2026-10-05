@@ -726,12 +726,16 @@ app.post("/api/validar", requiereAdmin, async (req, res) => {
 // -------- Panel (admin), opcionalmente filtrado por evento --------
 app.get("/api/panel", requiereAdmin, async (req, res) => {
   const db = await leerDB();
-  const { eventoId } = req.query;
-  const boletos = eventoId ? db.boletos.filter((b) => b.eventoId === eventoId) : db.boletos;
-  const ventas = eventoId ? db.ventas.filter((v) => v.eventoId === eventoId) : db.ventas;
-  const cupo = eventoId
-    ? (db.eventos.find((e) => e.id === eventoId)?.cupo || 0)
-    : db.eventos.reduce((s, e) => s + e.cupo, 0);
+  const { eventoId, eventoIds } = req.query;
+  // Un evento, un grupo de eventos (actuales o pasados, separados por comas;
+  // vacío = grupo sin eventos) o, sin filtro, todos.
+  let ids = null;
+  if (eventoId) ids = [eventoId];
+  else if (eventoIds !== undefined) ids = String(eventoIds).split(",").filter(Boolean);
+  const boletos = ids ? db.boletos.filter((b) => ids.includes(b.eventoId)) : db.boletos;
+  const ventas = ids ? db.ventas.filter((v) => ids.includes(v.eventoId)) : db.ventas;
+  const cupo = (ids ? db.eventos.filter((e) => ids.includes(e.id)) : db.eventos)
+    .reduce((s, e) => s + (Number(e.cupo) || 0), 0);
 
   const usados = boletos.filter((b) => b.estado === "usado").length;
   const ingresos = boletos.reduce((s, b) => s + Number(b.precio || 0), 0);
