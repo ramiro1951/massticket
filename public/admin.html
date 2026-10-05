@@ -154,6 +154,10 @@
   <!-- PANEL -->
   <section class="vista" id="v-panel">
     <h2>Resumen</h2>
+    <div class="fila-acciones" style="margin-bottom:12px">
+      <button class="btn" id="b-panel-actuales">Eventos actuales</button>
+      <button class="btn claro" id="b-panel-pasados">Eventos pasados</button>
+    </div>
     <div class="selector-evento">
       <label for="sel-evento-panel">Evento:</label>
       <select id="sel-evento-panel"><option value="">Todos los eventos</option></select>
@@ -168,7 +172,7 @@
   <!-- CLIENTES -->
   <section class="vista" id="v-clientes">
     <h2>Clientes</h2>
-    <p class="ayuda">Todas las personas que han comprado boletos, juntando todos sus boletos de todos los eventos.</p>
+    <p class="ayuda">Personas que han comprado boletos y dejaron un correo o un celular, juntando todos sus boletos de todos los eventos.</p>
     <div class="fila-acciones" style="margin-bottom:12px">
       <button class="btn claro" id="b-clientes-csv">Descargar CSV</button>
     </div>
@@ -241,6 +245,7 @@ let eventos = [];
 let eventoEditando = null; // id del evento que se está editando, o null si es uno nuevo
 let verEventosPasados = false; // toggle de la lista de eventos (Próximos/Pasados)
 let verBoletosPasados = false; // toggle del selector de eventos en Boletos
+let verPanelPasados = false; // toggle del selector de eventos en Panel
 function esPasado(e){
   const hoy = new Date().toISOString().slice(0,10);
   return !!(e.fecha && e.fecha < hoy);
@@ -303,7 +308,11 @@ function llenarSelectores(){
   $("#sel-evento-boletos").innerHTML = opcionesBoletos || `<option value="">${verBoletosPasados ? "No hay eventos pasados todavía" : "No hay eventos actuales"}</option>`;
   if(previoBoletos && listaBoletos.some(e=>e.id===previoBoletos)) $("#sel-evento-boletos").value = previoBoletos;
 
-  $("#sel-evento-panel").innerHTML = '<option value="">Todos los eventos</option>' + opcionesDe(eventos);
+  // Panel: según el botón elegido (Actuales/Pasados); "Todos" suma todo en ambos casos.
+  const listaPanel = eventos.filter(e => verPanelPasados ? esPasado(e) : !esPasado(e));
+  const previoPanel = $("#sel-evento-panel").value;
+  $("#sel-evento-panel").innerHTML = '<option value="">Todos los eventos</option>' + opcionesDe(listaPanel);
+  if(previoPanel && listaPanel.some(e=>e.id===previoPanel)) $("#sel-evento-panel").value = previoPanel;
 }
 ["sel-evento-boletos"].forEach(id=> $("#"+id).addEventListener("change", cargarBoletos));
 $("#sel-evento-panel").addEventListener("change", cargarPanel);
@@ -334,6 +343,18 @@ $("#b-boletos-pasados").onclick = ()=>{
   marcarActivo($("#b-boletos-pasados"), $("#b-boletos-actuales"));
   llenarSelectores();
   cargarBoletos();
+};
+$("#b-panel-actuales").onclick = ()=>{
+  verPanelPasados = false;
+  marcarActivo($("#b-panel-actuales"), $("#b-panel-pasados"));
+  llenarSelectores();
+  cargarPanel();
+};
+$("#b-panel-pasados").onclick = ()=>{
+  verPanelPasados = true;
+  marcarActivo($("#b-panel-pasados"), $("#b-panel-actuales"));
+  llenarSelectores();
+  cargarPanel();
 };
 
 /* ---------- Eventos: borrar ---------- */
@@ -573,13 +594,14 @@ function fechaHoraLegible(iso){
 }
 function pintarClientes(lista){
   const cont = $("#tabla-clientes");
-  if(!lista.length){ cont.innerHTML = '<div class="vacio">Todavía no hay boletos vendidos.</div>'; return; }
+  if(!lista.length){ cont.innerHTML = '<div class="vacio">Todavía no hay clientes con correo o celular.</div>'; return; }
   cont.innerHTML = `<table><thead><tr>
-      <th>Nombre</th><th>Contacto</th><th>Boletos</th><th>Eventos</th><th>Gastado</th><th>Última compra</th>
+      <th>Nombre</th><th>Correo</th><th>Celular</th><th>Boletos</th><th>Eventos</th><th>Gastado</th><th>Última compra</th>
     </tr></thead><tbody>
     ${lista.map(c=>`<tr>
       <td>${escapar(c.nombre||"(sin nombre)")}</td>
-      <td>${escapar([c.email,c.telefono].filter(Boolean).join(" · ")||"—")}</td>
+      <td>${escapar(c.email||"—")}</td>
+      <td>${escapar(c.telefono||"—")}</td>
       <td>${c.boletos}</td>
       <td>${c.eventos}</td>
       <td>${pesos(c.gastado)}</td>
