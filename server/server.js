@@ -690,6 +690,9 @@ app.get("/api/clientes", requiereAdmin, async (req, res) => {
       primeraCompra: g.primeraCompra,
       ultimaCompra: g.ultimaCompra,
     }))
+    // Solo se listan clientes con algún dato de contacto (correo o celular).
+    // Los boletos de quien no dejó ninguno siguen en la pestaña Boletos.
+    .filter((c) => c.email || c.telefono)
     .sort((a, b) => (b.ultimaCompra || "").localeCompare(a.ultimaCompra || ""));
 
   res.json(lista);
