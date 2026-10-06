@@ -589,6 +589,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   const eventoId = String(req.body?.eventoId || "");
   const nombre = String(req.body?.nombre || "").trim();
   const contacto = String(req.body?.contacto || "").trim();
+  const telefono = String(req.body?.telefono || "").trim();
   // Tope de 100: suficiente para una promoción o venta por mayoreo, sin
   // dejar que un error de dedo registre una cantidad absurda por accidente.
   const cantidad = Math.max(1, Math.min(100, parseInt(req.body?.cantidad) || 1));
@@ -602,7 +603,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   const precioManualTexto = String(req.body?.precioManual ?? "").trim();
   const precioManual = precioManualTexto === "" ? null : Math.max(0, Number(precioManualTexto) || 0);
 
-  let eventoParaCorreo, boletosParaCorreo;
+  let eventoParaCorreo, boletosParaCorreo, ventaIdManual = null;
   await conCandado(async () => {
     const db = await leerDB();
     const evento = db.eventos.find((e) => e.id === eventoId);
@@ -611,14 +612,32 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
       return res.status(409).json({ error: "Ya no hay cupo" });
     }
     const precio = metodo === "Cortesía" ? 0 : (precioManual !== null ? precioManual : Number(evento.precio) || 0);
+    // Cada venta manual también queda registrada como "venta" (ya pagada) para
+    // que tenga su propia página de boletos con QR, que se puede mandar por
+    // WhatsApp con el enlace /gracias.html?venta=...
+    ventaIdManual = uuid();
+    db.ventas.push({
+      id: ventaIdManual,
+      eventoId,
+      nombre,
+      contacto,
+      telefono,
+      cantidad,
+      precioUnit: precio,
+      estado: "pagado",
+      manual: true,
+      metodo,
+      creado: new Date().toISOString(),
+    });
     const nuevos = [];
     for (let i = 0; i < cantidad; i++) {
       const b = {
         folio: folioNuevo(db.boletos.length + 1),
         eventoId,
-        ventaId: null,
+        ventaId: ventaIdManual,
         nombre,
         contacto,
+        telefono,
         metodo,
         precio,
         estado: "valido",
@@ -631,7 +650,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     eventoParaCorreo = evento;
     boletosParaCorreo = nuevos;
-    res.json({ boletos: nuevos });
+    res.json({ boletos: nuevos, ventaId: ventaIdManual, evento: { nombre: evento.nombre, fecha: evento.fecha }, urlBoletos: `${PUBLIC_URL}/gracias.html?venta=${ventaIdManual}` });
   });
 
   // Se envía después de responder, para no hacer esperar al organizador
