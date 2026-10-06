@@ -135,6 +135,10 @@
         <div class="campo"><label for="c-nombre">Nombre</label><input id="c-nombre" placeholder="Ana Ramírez"></div>
         <div class="campo"><label for="c-contacto">Contacto</label><input id="c-contacto" placeholder="Opcional"></div>
       </div>
+      <div class="campo">
+        <label for="c-telefono">Celular (para mandar los boletos por WhatsApp)</label>
+        <input id="c-telefono" type="tel" placeholder="844 123 4567" autocomplete="off">
+      </div>
       <div class="duo">
         <div class="campo"><label for="c-cantidad">Boletos</label><input id="c-cantidad" type="number" min="1" max="100" value="1"></div>
         <div class="campo">
@@ -514,25 +518,45 @@ function pintarTabla(lista){
 }
 
 /* ---------- Venta manual ---------- */
+// Número para wa.me: 10 dígitos -> 521 + número (formato de celulares de México).
+function numeroWhatsApp(t){
+  const d = String(t||"").replace(/\D/g,"");
+  if(d.length===10) return "521"+d;
+  if(d.length===12 && d.startsWith("52")) return "521"+d.slice(2);
+  if(d.length===13 && d.startsWith("521")) return d;
+  return d; // otro formato: se usa tal cual
+}
+function botonWhatsApp(r, nombre, telefono){
+  if(!r.urlBoletos) return "";
+  const evento = r.evento ? r.evento.nombre : "el evento";
+  const fecha = r.evento && r.evento.fecha ? " ("+fechaLegible(r.evento.fecha)+")" : "";
+  const n = r.boletos.length;
+  const texto = `Hola ${nombre}, aquí ${n>1?"están tus "+n+" boletos":"está tu boleto"} para ${evento}${fecha}. Ábrelo aquí y presenta el código QR en la entrada: ${r.urlBoletos}`;
+  const num = numeroWhatsApp(telefono);
+  const url = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
+  const aviso = num ? "" : '<div class="ayuda" style="margin-top:6px">No escribiste celular: WhatsApp te dejará elegir el contacto.</div>';
+  return `<div style="grid-column:1/-1;margin-bottom:12px"><a class="btn" href="${url}" target="_blank" rel="noopener" style="background:#25D366;border-color:#25D366;color:#0b1f12">Enviar por WhatsApp</a>${aviso}</div>`;
+}
 $("#b-registrar").onclick = async ()=>{
   const eventoId = $("#sel-evento-vender").value;
   if(!eventoId){ alert("Crea un evento primero."); return; }
   const nombre = $("#c-nombre").value.trim();
   if(!nombre){ $("#c-nombre").focus(); return; }
   const cuerpo = {
-    eventoId, nombre, contacto: $("#c-contacto").value.trim(),
+    eventoId, nombre, contacto: $("#c-contacto").value.trim(), telefono: $("#c-telefono").value.trim(),
     cantidad: parseInt($("#c-cantidad").value||1), metodo: $("#c-metodo").value,
     precioManual: $("#c-precio-manual").value.trim()
   };
   try{
     const r = await api("/api/ventas-manuales", {method:"POST", body: JSON.stringify(cuerpo)});
     const cont = $("#recien");
-    cont.innerHTML = r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
+    const telefonoEnviado = cuerpo.telefono;
+    cont.innerHTML = botonWhatsApp(r, nombre, telefonoEnviado) + r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
       <h3>${escapar(b.nombre)}</h3><div class="folio">${b.folio}</div>
       <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}</div>
     </div><div class="talon"><div class="qr" data-folio="${b.folio}"></div></div></article>`).join("");
     cont.querySelectorAll(".qr").forEach(d=> new QRCode(d, {text:d.dataset.folio, width:100, height:100}));
-    $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-cantidad").value=1; $("#c-precio-manual").value="";
+    $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-telefono").value=""; $("#c-cantidad").value=1; $("#c-precio-manual").value="";
     cargarEventos();
   }catch(e){ alert("No se pudo registrar la venta (¿se llenó el cupo?)"); }
 };
