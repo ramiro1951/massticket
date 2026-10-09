@@ -68,7 +68,7 @@ async function cargar(){
           <div class="fecha">${fechaCorta(e.fecha)}</div>
           <h3>${escapar(e.nombre)}</h3>
           <div class="lugar">${escapar(e.lugar||"Lugar por confirmar")}</div>
-          ${agotado ? `<div class="agotado">Agotado</div>` : `<div class="precio">${pesos(e.precio)}</div>`}
+          ${agotado ? `<div class="agotado">Agotado</div>` : `<div class="precio">${e.zonas&&e.zonas.length ? "Desde " : ""}${pesos(e.precio)}</div>`}
         </div>
       </a>`;
     }).join("");
