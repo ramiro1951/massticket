@@ -8,6 +8,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/estilo.css">
+<style>
+  .zona-compra{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;margin-bottom:10px;border:1px solid var(--linea);border-radius:10px}
+  .zona-compra .zona-nombre{font-weight:700;font-size:16px}
+  .zona-compra .zona-detalle{font-size:13px;color:var(--humo);margin-top:2px}
+  .zona-compra .zona-quedan{font-size:12.5px;color:var(--ambar);font-weight:600;margin-left:6px}
+  .zona-compra .zona-agotada{font-size:12.5px;color:var(--rojo);font-weight:700;margin-left:6px}
+  .zona-compra input{width:78px;flex:0 0 auto;text-align:center}
+  .zona-compra.agotada{opacity:.55}
+</style>
 </head>
 <body>
 <div class="envoltura">
@@ -43,9 +52,14 @@
         <label for="c-telefono">Celular</label>
         <input id="c-telefono" type="tel" placeholder="844 123 4567" autocomplete="tel">
       </div>
-      <div class="campo">
+      <div class="campo" id="caja-cantidad">
         <label for="c-cantidad">Boletos</label>
         <input id="c-cantidad" type="number" min="1" max="10" value="1">
+      </div>
+      <div class="campo" id="caja-zonas" style="display:none">
+        <label>Elige tus boletos</label>
+        <div id="lista-zonas"></div>
+        <p class="ayuda" id="resumen-zonas" style="margin:4px 0 0"></p>
       </div>
       <div class="fila-acciones">
         <button class="btn" id="b-comprar">Pagar con Mercado Pago</button>
@@ -91,7 +105,13 @@ async function cargarEvento(){
   $("#cargando").style.display = "none";
   $("#contenido").style.display = "block";
   $("#ev-nombre").textContent = evento.nombre;
-  $("#ev-detalle").textContent = `${fechaLegible(evento.fecha)} · ${evento.lugar||"Lugar por confirmar"} · ${pesos(evento.precio)} por boleto`;
+  const conZonas = hayZonas();
+  $("#ev-detalle").textContent = `${fechaLegible(evento.fecha)} · ${evento.lugar||"Lugar por confirmar"} · ${conZonas ? "desde "+pesos(evento.precio)+" por boleto" : pesos(evento.precio)+" por boleto"}`;
+  if(conZonas){
+    $("#caja-cantidad").style.display = "none";
+    $("#caja-zonas").style.display = "";
+    pintarZonas();
+  }
   if(evento.imagen){ $("#cartel").src = evento.imagen; $("#cartel").classList.add("ver"); }
   calcularTotal();
 
@@ -104,7 +124,44 @@ function mostrarNoEncontrado(){
   $("#cargando").style.display = "none";
   $("#no-encontrado").style.display = "block";
 }
+function hayZonas(){ return !!(evento && evento.zonas && evento.zonas.length); }
+let cantidadesZona = {}; // id de zona -> cuántas compras de esa zona
+function pintarZonas(){
+  $("#lista-zonas").innerHTML = evento.zonas.map(z=>{
+    const maxU = Math.max(0, Math.min(10, Math.floor(z.disponibles / z.personas)));
+    const agotada = maxU < 1;
+    const detalle = [pesos(z.precio) + (z.personas>1 ? " por " + z.personas + " personas" : " por boleto")];
+    if(z.personas>1) detalle.push(pesos(z.precio/z.personas) + " por persona");
+    const unidades = Math.floor(z.disponibles / z.personas);
+    const aviso = agotada ? '<span class="zona-agotada">Agotado</span>' : (unidades<=20 ? `<span class="zona-quedan">Quedan ${unidades}</span>` : "");
+    return `<div class="zona-compra${agotada?" agotada":""}">
+      <div><div class="zona-nombre">${escaparHtml(z.nombre)}${aviso}</div><div class="zona-detalle">${detalle.join(" · ")}</div></div>
+      <input type="number" min="0" max="${maxU}" value="0" data-zona="${z.id}" ${agotada?"disabled":""} aria-label="Cantidad de ${escaparHtml(z.nombre)}">
+    </div>`;
+  }).join("");
+  $("#lista-zonas").querySelectorAll("input[data-zona]").forEach(inp=>{
+    inp.oninput = ()=>{
+      const max = parseInt(inp.max)||0;
+      let v = parseInt(inp.value)||0;
+      v = Math.max(0, Math.min(max, v));
+      if(String(v)!==inp.value && inp.value!=="") inp.value = v;
+      cantidadesZona[inp.dataset.zona] = v;
+      calcularTotal();
+    };
+  });
+}
+function escaparHtml(t){ return String(t??"").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
 function calcularTotal(){
+  if(hayZonas()){
+    let total = 0, boletos = 0;
+    for(const z of evento.zonas){
+      const u = cantidadesZona[z.id]||0;
+      total += u * z.precio; boletos += u * z.personas;
+    }
+    $("#c-total").textContent = pesos(total);
+    $("#resumen-zonas").textContent = boletos ? `${boletos} boleto${boletos>1?"s":""} en total` : "";
+    return;
+  }
   const n = Math.max(1, parseInt($("#c-cantidad").value||1));
   $("#c-total").textContent = pesos(n * (evento?.precio||0));
 }
@@ -122,13 +179,20 @@ $("#b-comprar").onclick = async ()=>{
   const telefono = $("#c-telefono").value.trim();
   const cantidad = Math.max(1, Math.min(10, parseInt($("#c-cantidad").value||1)));
   if(!nombre){ $("#c-nombre").focus(); mostrarError("Escribe el nombre de quien asiste."); return; }
+  const cuerpo = {eventoId, nombre, contacto, telefono};
+  if(hayZonas()){
+    cuerpo.zonas = evento.zonas.map(z=>({zonaId:z.id, cantidad: cantidadesZona[z.id]||0})).filter(z=>z.cantidad>0);
+    if(!cuerpo.zonas.length){ mostrarError("Elige al menos un boleto."); return; }
+  }else{
+    cuerpo.cantidad = cantidad;
+  }
 
   const btn = $("#b-comprar");
   btn.disabled = true; btn.textContent = "Conectando con Mercado Pago…";
   try{
     const r = await fetch("/api/comprar", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({eventoId, nombre, contacto, telefono, cantidad})
+      body: JSON.stringify(cuerpo)
     });
     const datos = await r.json();
     if(!r.ok){ mostrarError(datos.error || "No se pudo iniciar el pago."); btn.disabled=false; btn.textContent="Pagar con Mercado Pago"; return; }
@@ -149,7 +213,13 @@ $("#b-whatsapp").onclick = ()=>{
   const cantidad = Math.max(1, Math.min(10, parseInt($("#c-cantidad").value||1)));
   const nombreEvento = evento?.nombre || "el evento";
   const fecha = evento ? fechaLegible(evento.fecha) : "";
-  let texto = `Hola, quiero comprar ${cantidad} boleto${cantidad>1?"s":""} para ${nombreEvento}`;
+  let quiero = `${cantidad} boleto${cantidad>1?"s":""}`;
+  if(hayZonas()){
+    const partes = evento.zonas.filter(z=>cantidadesZona[z.id]>0).map(z=>`${cantidadesZona[z.id]} de ${z.nombre}`);
+    if(!partes.length){ mostrarError("Elige al menos un boleto."); return; }
+    quiero = partes.join(", ");
+  }
+  let texto = `Hola, quiero comprar ${quiero} para ${nombreEvento}`;
   if(fecha) texto += ` (${fecha})`;
   texto += `. Mi nombre es ${nombre}.`;
   window.open(`https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(texto)}`, "_blank");
