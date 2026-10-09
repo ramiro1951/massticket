@@ -102,6 +102,70 @@ function ocupadosDe(db, eventoId) {
   return enBoletos + enPendientes;
 }
 
+/* ---------------- Zonas (precios distintos dentro de un mismo evento) ---------------- */
+// Un evento puede tener "zonas" (Luneta, Preferente, Palco...). Cada zona:
+//   nombre, precio  = lo que cuesta UNA compra de esa zona,
+//   personas        = cuántos boletos (personas) incluye cada compra
+//                     (1 para zonas normales; 2 o 4 para palcos),
+//   cupo            = lugares (personas) disponibles en total en esa zona.
+// Cada boleto individual vale precio / personas.
+function zonasDe(evento) {
+  return Array.isArray(evento?.zonas) ? evento.zonas : [];
+}
+function limpiarZonas(entrada) {
+  if (!Array.isArray(entrada)) return [];
+  const vistos = new Set();
+  const zonas = [];
+  for (const z of entrada) {
+    const nombre = String(z?.nombre || "").trim().slice(0, 80);
+    if (!nombre) continue;
+    let id = String(z?.id || "").trim().slice(0, 60);
+    if (!id || vistos.has(id)) id = uuid();
+    vistos.add(id);
+    zonas.push({
+      id,
+      nombre,
+      precio: Math.max(0, Number(z?.precio) || 0),
+      personas: Math.max(1, Math.min(20, parseInt(z?.personas) || 1)),
+      cupo: Math.max(0, parseInt(z?.cupo) || 0),
+    });
+  }
+  return zonas;
+}
+function precioPorBoleto(z) {
+  return Math.round(((Number(z.precio) || 0) / (z.personas || 1)) * 100) / 100;
+}
+// Lugares ya tomados en una zona: boletos emitidos + compras pendientes recientes.
+function ocupadosZona(db, eventoId, zonaId) {
+  const ahora = Date.now();
+  const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId && b.zonaId === zonaId).length;
+  const enPendientes = db.ventas
+    .filter((v) => {
+      if (v.eventoId !== eventoId || v.estado !== "pendiente" || !Array.isArray(v.lineas)) return false;
+      const creado = v.creado ? new Date(v.creado).getTime() : 0;
+      return ahora - creado < VENTANA_RESERVA_MS;
+    })
+    .reduce(
+      (s, v) =>
+        s + v.lineas.filter((l) => l.zonaId === zonaId).reduce((t, l) => t + l.cantidad * l.personas, 0),
+      0
+    );
+  return enBoletos + enPendientes;
+}
+// Evento listo para mandarse al público: con lugares vendidos y, si tiene zonas,
+// cuántos lugares quedan en cada una.
+function conOcupacion(db, e) {
+  const zonas = zonasDe(e);
+  const salida = { ...e, vendidos: ocupadosDe(db, e.id) };
+  if (zonas.length) {
+    salida.zonas = zonas.map((z) => {
+      const vendidos = ocupadosZona(db, e.id, z.id);
+      return { ...z, vendidos, disponibles: Math.max(0, z.cupo - vendidos) };
+    });
+  }
+  return salida;
+}
+
 function requiereAdmin(req, res, next) {
   const clave = req.get("x-admin-key");
   if (!ADMIN_KEY || clave !== ADMIN_KEY) {
@@ -192,6 +256,7 @@ async function generarPDFBoletos({ evento, boletos }) {
 
     doc.fontSize(13).fillColor("#111").text(`Boleto de: ${b.nombre}`, { align: "center" });
     doc.fontSize(11).fillColor("#555").text(`Folio: ${b.folio}`, { align: "center" });
+    if (b.zona) doc.fontSize(12).fillColor("#111").text(`Zona: ${b.zona}`, { align: "center" });
     doc.moveDown(0.8);
 
     const qrBuffer = await QRCode.toBuffer(b.folio, { width: 220, margin: 1 });
@@ -264,10 +329,7 @@ app.get("/api/eventos", async (req, res) => {
   const mostrarTodos = req.query.todos === "1";
   const lista = db.eventos
     .filter((e) => mostrarTodos || !e.fecha || e.fecha >= hoy)
-    .map((e) => ({
-      ...e,
-      vendidos: ocupadosDe(db, e.id),
-    }))
+    .map((e) => conOcupacion(db, e))
     // Orden cronológico: el evento más próximo primero. Los que no tienen
     // fecha todavía ("por confirmar") se van al final, no al principio.
     .sort((a, b) => {
@@ -284,14 +346,15 @@ app.get("/api/eventos/:id", async (req, res) => {
   const db = await leerDB();
   const evento = db.eventos.find((e) => e.id === req.params.id);
   if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
-  res.json({ ...evento, vendidos: ocupadosDe(db, evento.id) });
+  res.json(conOcupacion(db, evento));
 });
 
 // -------- Crear evento (admin) --------
 app.post("/api/eventos", requiereAdmin, async (req, res) => {
-  const { nombre, fecha, lugar, precio, cupo, imagen } = req.body || {};
+  const { nombre, fecha, lugar, precio, cupo, imagen, zonas } = req.body || {};
   await conCandado(async () => {
     const db = await leerDB();
+    const zs = limpiarZonas(zonas);
     const nuevo = {
       id: uuid(),
       nombre: (nombre || "Evento sin nombre").trim(),
@@ -302,6 +365,12 @@ app.post("/api/eventos", requiereAdmin, async (req, res) => {
       imagen: typeof imagen === "string" ? imagen : "",
       creado: new Date().toISOString(),
     };
+    if (zs.length) {
+      // Con zonas, el cupo total y el precio "desde" salen de las zonas.
+      nuevo.zonas = zs;
+      nuevo.cupo = Math.max(1, zs.reduce((t, z) => t + z.cupo, 0));
+      nuevo.precio = Math.min(...zs.map(precioPorBoleto));
+    }
     db.eventos.push(nuevo);
     await escribirDB(db);
     res.json(nuevo);
@@ -310,16 +379,48 @@ app.post("/api/eventos", requiereAdmin, async (req, res) => {
 
 // -------- Editar evento (admin) --------
 app.put("/api/eventos/:id", requiereAdmin, async (req, res) => {
-  const { nombre, fecha, lugar, precio, cupo, imagen } = req.body || {};
+  const { nombre, fecha, lugar, precio, cupo, imagen, zonas } = req.body || {};
   await conCandado(async () => {
     const db = await leerDB();
     const evento = db.eventos.find((e) => e.id === req.params.id);
     if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
+
+    // Zonas: se revisa antes de cambiar nada para no dejar el evento a medias.
+    let zs = null;
+    if (Array.isArray(zonas)) {
+      zs = limpiarZonas(zonas);
+      const boletosEv = db.boletos.filter((b) => b.eventoId === evento.id);
+      if (zs.length && boletosEv.some((b) => !b.zonaId)) {
+        return res.status(409).json({ error: "Este evento ya vendió boletos sin zona; no se le pueden agregar zonas." });
+      }
+      const usadas = new Set(boletosEv.filter((b) => b.zonaId).map((b) => b.zonaId));
+      for (const id of usadas) {
+        if (!zs.some((z) => z.id === id)) {
+          return res.status(409).json({ error: "No puedes quitar una zona que ya tiene boletos vendidos." });
+        }
+      }
+      for (const z of zs) {
+        const ocup = ocupadosZona(db, evento.id, z.id);
+        if (z.cupo < ocup) {
+          return res.status(409).json({ error: `La zona "${z.nombre}" ya tiene ${ocup} lugares vendidos o apartados; su cupo no puede ser menor.` });
+        }
+      }
+    }
+
     evento.nombre = (nombre || evento.nombre || "Evento sin nombre").trim();
     evento.fecha = fecha ?? evento.fecha;
     evento.lugar = (lugar ?? evento.lugar ?? "").trim();
-    evento.precio = Math.max(0, Number(precio) || 0);
-    evento.cupo = Math.max(1, Number(cupo) || 1);
+    if (zs && zs.length) {
+      evento.zonas = zs;
+      evento.cupo = Math.max(1, zs.reduce((t, z) => t + z.cupo, 0));
+      evento.precio = Math.min(...zs.map(precioPorBoleto));
+    } else if (zonasDe(evento).length && !zs) {
+      // Evento con zonas y la petición no trae zonas: no se tocan precio ni cupo.
+    } else {
+      if (zs) delete evento.zonas; // se mandó la lista vacía: vuelve a precio único
+      evento.precio = Math.max(0, Number(precio) || 0);
+      evento.cupo = Math.max(1, Number(cupo) || 1);
+    }
     if (typeof imagen === "string" && imagen) evento.imagen = imagen;
     await escribirDB(db);
     res.json(evento);
@@ -365,42 +466,97 @@ app.get("/api/admin/limpiar-prueba", async (req, res) => {
 
 // -------- Comprar (público): crea la preferencia y devuelve el link de pago --------
 app.post("/api/comprar", async (req, res) => {
+  const ventaId = uuid();
+  let ventaCreada = false;
   try {
     const eventoId = String(req.body?.eventoId || "");
     const nombre = String(req.body?.nombre || "").trim();
     const contacto = String(req.body?.contacto || "").trim();
     const telefono = String(req.body?.telefono || "").trim();
-    const cantidad = Math.max(1, Math.min(20, parseInt(req.body?.cantidad) || 1));
+    const cantidadSimple = Math.max(1, Math.min(20, parseInt(req.body?.cantidad) || 1));
+    const pedidoZonas = Array.isArray(req.body?.zonas) ? req.body.zonas : [];
     if (!nombre) return res.status(400).json({ error: "Falta el nombre de quien compra" });
 
-    const db = await leerDB();
-    const evento = db.eventos.find((e) => e.id === eventoId);
-    if (!evento) return res.status(404).json({ error: "Ese evento ya no está disponible" });
+    // Se revisa el cupo y se aparta el lugar en el MISMO paso (con candado),
+    // para que dos compras al mismo tiempo no vendan el mismo lugar dos veces.
+    let falla = null;
+    let evento = null;
+    const items = [];
+    await conCandado(async () => {
+      const db = await leerDB();
+      evento = db.eventos.find((e) => e.id === eventoId);
+      if (!evento) { falla = { status: 404, error: "Ese evento ya no está disponible" }; return; }
 
-    const hoy = new Date().toISOString().slice(0, 10);
-    if (evento.fecha && evento.fecha < hoy) {
-      return res.status(409).json({ error: "Ese evento ya pasó, ya no se pueden comprar boletos" });
-    }
+      const hoy = new Date().toISOString().slice(0, 10);
+      if (evento.fecha && evento.fecha < hoy) {
+        falla = { status: 409, error: "Ese evento ya pasó, ya no se pueden comprar boletos" };
+        return;
+      }
 
-    if (ocupadosDe(db, eventoId) + cantidad > evento.cupo) {
-      return res.status(409).json({ error: "Ya no hay cupo suficiente para esa cantidad" });
-    }
+      const zonas = zonasDe(evento);
+      let lineas = null;
+      let totalBoletos = 0;
+      if (zonas.length) {
+        lineas = [];
+        for (const p of pedidoZonas) {
+          const z = zonas.find((x) => x.id === String(p?.zonaId || ""));
+          const cant = Math.max(0, Math.min(10, parseInt(p?.cantidad) || 0));
+          if (!z || cant < 1 || lineas.some((l) => l.zonaId === z.id)) continue;
+          lineas.push({ zonaId: z.id, zonaNombre: z.nombre, personas: z.personas, cantidad: cant, precioUnit: z.precio });
+        }
+        if (!lineas.length) { falla = { status: 400, error: "Elige al menos un boleto." }; return; }
+        for (const l of lineas) {
+          const z = zonas.find((x) => x.id === l.zonaId);
+          const n = l.cantidad * l.personas;
+          if (ocupadosZona(db, eventoId, l.zonaId) + n > z.cupo) {
+            falla = { status: 409, error: `Ya no hay lugares suficientes en ${z.nombre}.` };
+            return;
+          }
+          totalBoletos += n;
+          items.push({
+            id: l.zonaId,
+            title: `${evento.nombre} — ${l.zonaNombre}`.slice(0, 250),
+            quantity: l.cantidad,
+            unit_price: l.precioUnit,
+            currency_id: "MXN",
+          });
+        }
+      } else {
+        if (ocupadosDe(db, eventoId) + cantidadSimple > evento.cupo) {
+          falla = { status: 409, error: "Ya no hay cupo suficiente para esa cantidad" };
+          return;
+        }
+        totalBoletos = cantidadSimple;
+        items.push({
+          id: ventaId,
+          title: evento.nombre || "Boleto de evento",
+          quantity: cantidadSimple,
+          unit_price: Number(evento.precio) || 0,
+          currency_id: "MXN",
+        });
+      }
 
-    const ventaId = uuid();
-    const precio = Number(evento.precio) || 0;
+      db.ventas.push({
+        id: ventaId,
+        eventoId,
+        nombre,
+        contacto,
+        telefono,
+        cantidad: totalBoletos,
+        ...(lineas ? { lineas } : { precioUnit: Number(evento.precio) || 0 }),
+        preferenceId: null,
+        estado: "pendiente",
+        creado: new Date().toISOString(),
+      });
+      await escribirDB(db);
+      ventaCreada = true;
+    });
+    if (falla) return res.status(falla.status).json({ error: falla.error });
 
     const preference = new Preference(mpClient);
     const resultado = await preference.create({
       body: {
-        items: [
-          {
-            id: ventaId,
-            title: evento.nombre || "Boleto de evento",
-            quantity: cantidad,
-            unit_price: precio,
-            currency_id: "MXN",
-          },
-        ],
+        items,
         payer: contacto.includes("@") ? { email: contacto } : undefined,
         external_reference: ventaId,
         back_urls: {
@@ -416,24 +572,25 @@ app.post("/api/comprar", async (req, res) => {
 
     await conCandado(async () => {
       const db2 = await leerDB();
-      db2.ventas.push({
-        id: ventaId,
-        eventoId,
-        nombre,
-        contacto,
-        telefono,
-        cantidad,
-        precioUnit: precio,
-        preferenceId: resultado.id,
-        estado: "pendiente",
-        creado: new Date().toISOString(),
-      });
-      await escribirDB(db2);
+      const v = db2.ventas.find((x) => x.id === ventaId);
+      if (v) { v.preferenceId = resultado.id; await escribirDB(db2); }
     });
 
     res.json({ ventaId, initPoint: resultado.init_point });
   } catch (err) {
     console.error("Error creando preferencia:", err);
+    // Si ya se había apartado el lugar pero Mercado Pago falló, se libera.
+    if (ventaCreada) {
+      try {
+        await conCandado(async () => {
+          const db3 = await leerDB();
+          db3.ventas = db3.ventas.filter((v) => v.id !== ventaId);
+          await escribirDB(db3);
+        });
+      } catch (e2) {
+        console.error("No se pudo liberar la venta fallida:", e2);
+      }
+    }
     res.status(500).json({ error: "No se pudo iniciar el pago. Intenta de nuevo." });
   }
 });
@@ -467,22 +624,33 @@ async function aplicarPagoAprobado(ventaId, pago) {
     venta.pagadoEn = new Date().toISOString();
 
     const nuevos = [];
-    for (let i = 0; i < venta.cantidad; i++) {
-      const b = {
-        folio: folioNuevo(db.boletos.length + 1),
-        eventoId: venta.eventoId,
-        ventaId: venta.id,
-        nombre: venta.nombre,
-        contacto: venta.contacto,
-        telefono: venta.telefono || "",
-        metodo: "Mercado Pago",
-        precio: venta.precioUnit,
-        estado: "valido",
-        creado: new Date().toISOString(),
-        usadoEn: null,
-      };
-      db.boletos.push(b);
-      nuevos.push(b);
+    // Compra con zonas: cada línea trae su zona y cuántos boletos incluye cada
+    // compra (palco de 2 o de 4 = 2 o 4 boletos, cada uno con su QR).
+    const lineas =
+      Array.isArray(venta.lineas) && venta.lineas.length
+        ? venta.lineas
+        : [{ zonaId: null, zonaNombre: "", personas: 1, cantidad: venta.cantidad, precioUnit: venta.precioUnit }];
+    for (const l of lineas) {
+      const n = l.cantidad * l.personas;
+      const precioBoleto = Math.round(((Number(l.precioUnit) || 0) / l.personas) * 100) / 100;
+      for (let i = 0; i < n; i++) {
+        const b = {
+          folio: folioNuevo(db.boletos.length + 1),
+          eventoId: venta.eventoId,
+          ventaId: venta.id,
+          nombre: venta.nombre,
+          contacto: venta.contacto,
+          telefono: venta.telefono || "",
+          metodo: "Mercado Pago",
+          precio: precioBoleto,
+          ...(l.zonaId ? { zonaId: l.zonaId, zona: l.zonaNombre } : {}),
+          estado: "valido",
+          creado: new Date().toISOString(),
+          usadoEn: null,
+        };
+        db.boletos.push(b);
+        nuevos.push(b);
+      }
     }
     await escribirDB(db);
 
@@ -594,6 +762,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   // dejar que un error de dedo registre una cantidad absurda por accidente.
   const cantidad = Math.max(1, Math.min(100, parseInt(req.body?.cantidad) || 1));
   const metodo = String(req.body?.metodo || "Efectivo");
+  const zonaId = String(req.body?.zonaId || "");
   if (!nombre) return res.status(400).json({ error: "Falta el nombre" });
 
   // Precio especial opcional (por ejemplo, una promoción de mayoreo a un
@@ -611,7 +780,19 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
     if (ocupadosDe(db, eventoId) + cantidad > evento.cupo) {
       return res.status(409).json({ error: "Ya no hay cupo" });
     }
-    const precio = metodo === "Cortesía" ? 0 : (precioManual !== null ? precioManual : Number(evento.precio) || 0);
+    // Si el evento tiene zonas, hay que elegir una; "cantidad" son boletos
+    // (personas) y el precio normal es el de un boleto individual de la zona.
+    const zonasEv = zonasDe(evento);
+    let zona = null;
+    if (zonasEv.length) {
+      zona = zonasEv.find((z) => z.id === zonaId);
+      if (!zona) return res.status(400).json({ error: "Elige la zona." });
+      if (ocupadosZona(db, eventoId, zona.id) + cantidad > zona.cupo) {
+        return res.status(409).json({ error: `Ya no hay lugares suficientes en ${zona.nombre}.` });
+      }
+    }
+    const precioBase = zona ? precioPorBoleto(zona) : Number(evento.precio) || 0;
+    const precio = metodo === "Cortesía" ? 0 : (precioManual !== null ? precioManual : precioBase);
     // Cada venta manual también queda registrada como "venta" (ya pagada) para
     // que tenga su propia página de boletos con QR, que se puede mandar por
     // WhatsApp con el enlace /gracias.html?venta=...
@@ -624,6 +805,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
       telefono,
       cantidad,
       precioUnit: precio,
+      ...(zona ? { zonaNombre: zona.nombre } : {}),
       estado: "pagado",
       manual: true,
       metodo,
@@ -640,6 +822,7 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
         telefono,
         metodo,
         precio,
+        ...(zona ? { zonaId: zona.id, zona: zona.nombre } : {}),
         estado: "valido",
         creado: new Date().toISOString(),
         usadoEn: null,
@@ -733,12 +916,12 @@ app.post("/api/validar", requiereAdmin, async (req, res) => {
     const b = db.boletos.find((x) => x.folio === folio);
     if (!b) return res.status(404).json({ resultado: "no_existe" });
     if (b.estado === "usado") {
-      return res.json({ resultado: "repetido", nombre: b.nombre, usadoEn: b.usadoEn });
+      return res.json({ resultado: "repetido", nombre: b.nombre, usadoEn: b.usadoEn, zona: b.zona || "" });
     }
     b.estado = "usado";
     b.usadoEn = new Date().toISOString();
     await escribirDB(db);
-    res.json({ resultado: "ok", nombre: b.nombre, folio: b.folio });
+    res.json({ resultado: "ok", nombre: b.nombre, folio: b.folio, zona: b.zona || "" });
   });
 });
 
@@ -761,12 +944,31 @@ app.get("/api/panel", requiereAdmin, async (req, res) => {
   const porMetodo = {};
   boletos.forEach((b) => (porMetodo[b.metodo] = (porMetodo[b.metodo] || 0) + Number(b.precio || 0)));
 
+  // Desglose por zona cuando se mira un solo evento que tiene zonas.
+  let porZona;
+  if (eventoId) {
+    const ev = db.eventos.find((e) => e.id === eventoId);
+    const zs = zonasDe(ev);
+    if (zs.length) {
+      porZona = zs.map((z) => {
+        const bz = boletos.filter((b) => b.zonaId === z.id);
+        return {
+          nombre: z.nombre,
+          vendidos: bz.length,
+          cupo: z.cupo,
+          ingresos: bz.reduce((t, b) => t + Number(b.precio || 0), 0),
+        };
+      });
+    }
+  }
+
   res.json({
     vendidos: boletos.length,
     usados,
     ingresos,
     cupo,
     porMetodo,
+    ...(porZona ? { porZona } : {}),
     pendientesDePago: ventas.filter((v) => v.estado === "pendiente").length,
   });
 });
