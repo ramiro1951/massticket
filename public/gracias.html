@@ -62,7 +62,7 @@ function htmlBoleto(b, evento){
         <div style="font-size:13px;color:#6B6458">${escapar(fechaLegible(evento.fecha))} · ${escapar(evento.lugar||"")}</div>
         <dl>
           <dt>A nombre de</dt><dd>${escapar(b.nombre)}</dd>
-          <dt>Acceso</dt><dd>Admisión general</dd>
+          <dt>Acceso</dt><dd>${escapar(b.zona||"Admisión general")}</dd>
           <dt>Pagado</dt><dd>${b.precio>0 ? pesos(b.precio)+" · "+escapar(b.metodo||"Mercado Pago") : "Cortesía"}</dd>
         </dl>
         <div class="folio">${b.folio}</div>
