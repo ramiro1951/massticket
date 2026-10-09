@@ -29,6 +29,13 @@
   .fila-evento .acciones{margin-left:auto;display:flex;gap:8px}
   .fila-evento .acciones button{font-size:13px;padding:7px 12px}
 </style>
+<style>
+  .zona-fila{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;padding:10px;margin-bottom:8px;border:1px solid var(--linea);border-radius:8px}
+  .zona-fila .campo{margin:0;flex:1 1 120px}
+  .zona-fila .campo.ancho{flex:2 1 200px}
+  .zona-fila .quitar{flex:0 0 auto}
+  .zona-nota{font-size:12.5px;color:var(--humo);margin:4px 0 0}
+</style>
 </head>
 <body>
 
@@ -72,9 +79,15 @@
         <div class="campo"><label for="e-fecha">Fecha</label><input id="e-fecha" type="date"></div>
         <div class="campo"><label for="e-lugar">Lugar</label><input id="e-lugar" placeholder="Teatro García Carrillo, Saltillo"></div>
       </div>
-      <div class="duo">
+      <div class="duo" id="e-precio-cupo">
         <div class="campo"><label for="e-precio">Precio por boleto (MXN)</label><input id="e-precio" type="number" min="0" value="250"></div>
         <div class="campo"><label for="e-cupo">Cupo total</label><input id="e-cupo" type="number" min="1" value="200"></div>
+      </div>
+      <div class="campo">
+        <label>Zonas con precios distintos (opcional)</label>
+        <p class="zona-nota">Si agregas zonas (Luneta, Preferente, Palco…), el precio y el cupo de arriba se ignoran: el cupo total es la suma de las zonas. "Precio por compra" es lo que paga el cliente cada vez que compra esa zona; "Boletos por compra" es cuántos boletos (personas) incluye (1 normal, 2 o 4 en un palco). "Lugares" es cuántas personas caben en total en esa zona.</p>
+        <div id="zonas-lista" style="margin-top:8px"></div>
+        <button type="button" class="btn claro" id="b-agregar-zona">+ Agregar zona</button>
       </div>
       <div class="fila-acciones">
         <button class="btn" id="b-guardar-evento">Crear evento</button>
@@ -139,6 +152,11 @@
         <label for="c-telefono">Celular (para mandar los boletos por WhatsApp)</label>
         <input id="c-telefono" type="tel" placeholder="844 123 4567" autocomplete="off">
       </div>
+      <div class="campo" id="c-zona-caja" style="display:none">
+        <label for="c-zona">Zona</label>
+        <select id="c-zona"></select>
+        <p class="zona-nota">En eventos con zonas, "Boletos" son personas (un palco de 4 = 4 boletos).</p>
+      </div>
       <div class="duo">
         <div class="campo"><label for="c-cantidad">Boletos</label><input id="c-cantidad" type="number" min="1" max="100" value="1"></div>
         <div class="campo">
@@ -167,6 +185,10 @@
       <select id="sel-evento-panel"><option value="">Todos los eventos</option></select>
     </div>
     <div class="metricas" id="metricas"></div>
+    <div class="panel-caja" id="panel-zonas" style="display:none">
+      <div style="font-size:14px;margin-bottom:12px">Por zona</div>
+      <div id="zonas-resumen"></div>
+    </div>
     <div class="panel-caja">
       <div style="font-size:14px;margin-bottom:12px">Ingresos por forma de pago</div>
       <div id="metodos"></div>
@@ -277,7 +299,7 @@ function pintarListaEventosAdmin(){
       ${e.imagen ? `<img src="${e.imagen}" alt="">` : `<img alt="">`}
       <div>
         <div class="nombre">${escapar(e.nombre)}</div>
-        <div class="detalle">${escapar(fechaLegible(e.fecha))} · ${escapar(e.lugar||"")} · ${pesos(e.precio)} · ${e.vendidos}/${e.cupo} vendidos</div>
+        <div class="detalle">${escapar(fechaLegible(e.fecha))} · ${escapar(e.lugar||"")} · ${e.zonas&&e.zonas.length ? "desde "+pesos(e.precio) : pesos(e.precio)} · ${e.vendidos}/${e.cupo} vendidos</div>
       </div>
       <div class="acciones">
         <button class="btn claro" data-editar="${e.id}">Editar</button>
@@ -312,6 +334,7 @@ function llenarSelectores(){
   $("#sel-evento-boletos").innerHTML = opcionesBoletos || `<option value="">${verBoletosPasados ? "No hay eventos pasados todavía" : "No hay eventos actuales"}</option>`;
   if(previoBoletos && listaBoletos.some(e=>e.id===previoBoletos)) $("#sel-evento-boletos").value = previoBoletos;
 
+  actualizarZonaVenta();
   // Panel: según el botón elegido (Actuales/Pasados); "Todos" suma todo en ambos casos.
   const listaPanel = eventos.filter(e => verPanelPasados ? esPasado(e) : !esPasado(e));
   const previoPanel = $("#sel-evento-panel").value;
@@ -380,8 +403,40 @@ async function borrarEvento(id){
 }
 
 /* ---------- Eventos: crear / editar ---------- */
+/* ---------- Zonas del evento (formulario) ---------- */
+function agregarFilaZona(z){
+  z = z || {nombre:"", precio:"", personas:1, cupo:""};
+  const fila = document.createElement("div");
+  fila.className = "zona-fila";
+  fila.dataset.id = z.id || "";
+  fila.innerHTML = `
+    <div class="campo ancho"><label>Nombre de la zona</label><input class="z-nombre" placeholder="Luneta" value="${escapar(z.nombre)}"></div>
+    <div class="campo"><label>Precio por compra (MXN)</label><input class="z-precio" type="number" min="0" value="${escapar(z.precio)}"></div>
+    <div class="campo"><label>Boletos por compra</label><input class="z-personas" type="number" min="1" max="20" value="${escapar(z.personas||1)}"></div>
+    <div class="campo"><label>Lugares (personas)</label><input class="z-cupo" type="number" min="0" value="${escapar(z.cupo)}"></div>
+    <button type="button" class="btn claro quitar" style="color:var(--rojo)">Quitar</button>`;
+  fila.querySelector(".quitar").onclick = ()=>{ fila.remove(); actualizarModoZonas(); };
+  $("#zonas-lista").appendChild(fila);
+  actualizarModoZonas();
+}
+function actualizarModoZonas(){
+  const hay = $("#zonas-lista").children.length > 0;
+  $("#e-precio-cupo").style.display = hay ? "none" : "";
+}
+function leerZonasFormulario(){
+  return [...$("#zonas-lista").children].map(f=>({
+    id: f.dataset.id || undefined,
+    nombre: f.querySelector(".z-nombre").value.trim(),
+    precio: Number(f.querySelector(".z-precio").value||0),
+    personas: parseInt(f.querySelector(".z-personas").value||1),
+    cupo: parseInt(f.querySelector(".z-cupo").value||0)
+  })).filter(z=>z.nombre);
+}
+$("#b-agregar-zona").onclick = ()=> agregarFilaZona();
+
 function limpiarFormularioEvento(){
   eventoEditando = null;
+  $("#zonas-lista").innerHTML = ""; actualizarModoZonas();
   $("#e-nombre").value=""; $("#e-fecha").value=""; $("#e-lugar").value="";
   $("#e-precio").value=250; $("#e-cupo").value=200;
   $("#e-imagen").value=""; $("#e-imagen-preview").classList.remove("ver"); $("#e-imagen-preview").src="";
@@ -398,6 +453,9 @@ function cargarEventoParaEditar(id){
   $("#e-lugar").value = e.lugar||"";
   $("#e-precio").value = e.precio;
   $("#e-cupo").value = e.cupo;
+  $("#zonas-lista").innerHTML = "";
+  (e.zonas||[]).forEach(z=>agregarFilaZona(z));
+  actualizarModoZonas();
   imagenPendiente = null;
   if(e.imagen){ $("#e-imagen-preview").src=e.imagen; $("#e-imagen-preview").classList.add("ver"); }
   else{ $("#e-imagen-preview").classList.remove("ver"); }
@@ -438,16 +496,19 @@ $("#b-guardar-evento").onclick = async ()=>{
   const cuerpo = {
     nombre, fecha: $("#e-fecha").value, lugar: $("#e-lugar").value.trim(),
     precio: Number($("#e-precio").value||0), cupo: Number($("#e-cupo").value||1),
+    zonas: leerZonasFormulario(),
     imagen: imagenPendiente
   };
   const btn = $("#b-guardar-evento");
   btn.disabled = true;
   try{
+    let r;
     if(eventoEditando){
-      await api("/api/eventos/"+eventoEditando, {method:"PUT", body: JSON.stringify(cuerpo)});
+      r = await api("/api/eventos/"+eventoEditando, {method:"PUT", body: JSON.stringify(cuerpo)});
     }else{
-      await api("/api/eventos", {method:"POST", body: JSON.stringify(cuerpo)});
+      r = await api("/api/eventos", {method:"POST", body: JSON.stringify(cuerpo)});
     }
+    if(r && r.error){ alert(r.error); btn.disabled = false; return; }
     await cargarEventos();
     limpiarFormularioEvento();
   }catch(e){
@@ -478,8 +539,8 @@ async function validar(codigo){
     return;
   }
   if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
-  else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
-  else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+r.folio);
+  else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+(r.zona?" ("+r.zona+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
+  else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+(r.zona?r.zona+" · ":"")+r.folio);
   $("#p-folio").value="";
 }
 $("#b-validar").onclick = ()=>validar($("#p-folio").value);
@@ -503,7 +564,7 @@ async function cargarBoletos(){
   pintarTabla(boletos);
   $("#b-buscar").oninput = ()=>{
     const q = $("#b-buscar").value.trim().toLowerCase();
-    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")+(b.telefono||"")).toLowerCase().includes(q)));
+    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")+(b.telefono||"")+(b.zona||"")).toLowerCase().includes(q)));
   };
 }
 function pintarTabla(lista){
@@ -512,7 +573,7 @@ function pintarTabla(lista){
     ${lista.map(b=>`<tr>
       <td>${b.folio}</td>
       <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div></td>
-      <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}</div></td>
+      <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}</div></td>
       <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
     </tr>`).join("")}</tbody></table>`;
 }
@@ -537,6 +598,15 @@ function botonWhatsApp(r, nombre, telefono){
   const aviso = num ? "" : '<div class="ayuda" style="margin-top:6px">No escribiste celular: WhatsApp te dejará elegir el contacto.</div>';
   return `<div style="grid-column:1/-1;margin-bottom:12px"><a class="btn" href="${url}" target="_blank" rel="noopener" style="background:#25D366;border-color:#25D366;color:#0b1f12">Enviar por WhatsApp</a>${aviso}</div>`;
 }
+function actualizarZonaVenta(){
+  const ev = eventos.find(e=>e.id===$("#sel-evento-vender").value);
+  const zs = (ev && ev.zonas) || [];
+  $("#c-zona-caja").style.display = zs.length ? "" : "none";
+  const previa = $("#c-zona").value;
+  $("#c-zona").innerHTML = zs.map(z=>`<option value="${z.id}">${escapar(z.nombre)} — ${pesos(z.precio/(z.personas||1))} por boleto · quedan ${z.disponibles}</option>`).join("");
+  if(previa && zs.some(z=>z.id===previa)) $("#c-zona").value = previa;
+}
+$("#sel-evento-vender").addEventListener("change", actualizarZonaVenta);
 $("#b-registrar").onclick = async ()=>{
   const eventoId = $("#sel-evento-vender").value;
   if(!eventoId){ alert("Crea un evento primero."); return; }
@@ -545,15 +615,17 @@ $("#b-registrar").onclick = async ()=>{
   const cuerpo = {
     eventoId, nombre, contacto: $("#c-contacto").value.trim(), telefono: $("#c-telefono").value.trim(),
     cantidad: parseInt($("#c-cantidad").value||1), metodo: $("#c-metodo").value,
-    precioManual: $("#c-precio-manual").value.trim()
+    precioManual: $("#c-precio-manual").value.trim(),
+    zonaId: $("#c-zona-caja").style.display==="none" ? "" : $("#c-zona").value
   };
   try{
     const r = await api("/api/ventas-manuales", {method:"POST", body: JSON.stringify(cuerpo)});
+    if(r && r.error){ alert(r.error); return; }
     const cont = $("#recien");
     const telefonoEnviado = cuerpo.telefono;
     cont.innerHTML = botonWhatsApp(r, nombre, telefonoEnviado) + r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
       <h3>${escapar(b.nombre)}</h3><div class="folio">${b.folio}</div>
-      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}</div>
+      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}</div>
     </div><div class="talon"><div class="qr" data-folio="${b.folio}"></div></div></article>`).join("");
     cont.querySelectorAll(".qr").forEach(d=> new QRCode(d, {text:d.dataset.folio, width:100, height:100}));
     $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-telefono").value=""; $("#c-cantidad").value=1; $("#c-precio-manual").value="";
@@ -573,6 +645,12 @@ async function cargarPanel(){
     <div class="metrica"><b>${pesos(p.ingresos)}</b><span>ingresos</span></div>
     <div class="metrica"><b>${p.usados}</b><span>ya entraron</span></div>
     <div class="metrica"><b>${Math.max(0,p.cupo-p.vendidos)}</b><span>lugares libres</span></div>`;
+  if(p.porZona && p.porZona.length){
+    $("#panel-zonas").style.display = "";
+    $("#zonas-resumen").innerHTML = p.porZona.map(z=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(z.nombre)} · ${z.vendidos}/${z.cupo}</span><span>${pesos(z.ingresos)}</span></div>`).join("");
+  }else{
+    $("#panel-zonas").style.display = "none";
+  }
   const filas = Object.entries(p.porMetodo||{}).map(([m,v])=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(m)}</span><span>${pesos(v)}</span></div>`).join("");
   $("#metodos").innerHTML = filas || '<div style="color:var(--humo);font-size:14px">Sin ventas todavía.</div>';
   if(p.pendientesDePago){
