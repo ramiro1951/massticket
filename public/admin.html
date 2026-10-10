@@ -273,7 +273,8 @@ let verEventosPasados = false; // toggle de la lista de eventos (Próximos/Pasad
 let verBoletosPasados = false; // toggle del selector de eventos en Boletos
 let verPanelPasados = false; // toggle del selector de eventos en Panel
 function esPasado(e){
-  const hoy = new Date().toISOString().slice(0,10);
+  // Hora de México; el evento sigue "actual" hasta las 6:00 am del día siguiente.
+  const hoy = new Intl.DateTimeFormat("en-CA",{timeZone:"America/Mexico_City",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(Date.now()-6*3600*1000));
   return !!(e.fecha && e.fecha < hoy);
 }
 
