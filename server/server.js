@@ -102,6 +102,17 @@ function ocupadosDe(db, eventoId) {
   return enBoletos + enPendientes;
 }
 
+// "Hoy" según la hora de México (no la de UTC, que ya es "mañana" desde las
+// 6 pm). Un evento sigue vigente toda la noche: deja de ser "de hoy" hasta las
+// 6:00 am del día siguiente, para que la puerta y la venta sigan abiertas
+// mientras dura el evento aunque pase de la medianoche.
+function hoyMX(ahora = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(ahora - 6 * 3600 * 1000));
+}
+
 /* ---------------- Zonas (precios distintos dentro de un mismo evento) ---------------- */
 // Un evento puede tener "zonas" (Luneta, Preferente, Palco...). Cada zona:
 //   nombre, precio  = lo que cuesta UNA compra de esa zona,
@@ -325,7 +336,7 @@ app.get("/api/eventos", async (req, res) => {
   // nadie tenga que borrarlo. El panel de organizador pide ?todos=1 para
   // seguir viendo TODOS los eventos (incluidos los ya pasados), porque ahí
   // se siguen administrando boletos y borrando eventos a mano.
-  const hoy = new Date().toISOString().slice(0, 10); // "AAAA-MM-DD"
+  const hoy = hoyMX(); // "AAAA-MM-DD"
   const mostrarTodos = req.query.todos === "1";
   const lista = db.eventos
     .filter((e) => mostrarTodos || !e.fecha || e.fecha >= hoy)
@@ -487,7 +498,7 @@ app.post("/api/comprar", async (req, res) => {
       evento = db.eventos.find((e) => e.id === eventoId);
       if (!evento) { falla = { status: 404, error: "Ese evento ya no está disponible" }; return; }
 
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = hoyMX();
       if (evento.fecha && evento.fecha < hoy) {
         falla = { status: 409, error: "Ese evento ya pasó, ya no se pueden comprar boletos" };
         return;
