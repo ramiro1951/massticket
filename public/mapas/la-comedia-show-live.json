@@ -1,0 +1,551 @@
+{
+ "id": "la-comedia-show-live",
+ "nombre": "La Comedia Show Live",
+ "viewBox": [
+  0,
+  0,
+  720,
+  1280
+ ],
+ "secciones": [
+  {
+   "id": "vip",
+   "nombre": "VIP",
+   "color": "#F2A71B",
+   "texto": "#1b1b19",
+   "asiento": "rgba(0,0,0,.35)"
+  },
+  {
+   "id": "preferente",
+   "nombre": "Preferente",
+   "color": "#D7263D",
+   "texto": "#ffffff",
+   "asiento": "rgba(255,255,255,.55)"
+  },
+  {
+   "id": "general",
+   "nombre": "General",
+   "color": "#2F6FD1",
+   "texto": "#ffffff",
+   "asiento": "rgba(255,255,255,.55)"
+  }
+ ],
+ "mesas": [
+  {
+   "id": "1",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 120,
+   "y": 122,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "2",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 292,
+   "y": 119,
+   "w": 110,
+   "h": 108
+  },
+  {
+   "id": "3",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 445,
+   "y": 122,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "4",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 133,
+   "y": 247,
+   "w": 98,
+   "h": 100
+  },
+  {
+   "id": "5",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 295,
+   "y": 247,
+   "w": 109,
+   "h": 100
+  },
+  {
+   "id": "6",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 437,
+   "y": 247,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "7",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 136,
+   "y": 375,
+   "w": 96,
+   "h": 98
+  },
+  {
+   "id": "8",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 295,
+   "y": 370,
+   "w": 109,
+   "h": 102
+  },
+  {
+   "id": "9",
+   "seccion": "vip",
+   "asientos": 4,
+   "x": 440,
+   "y": 370,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "33",
+   "seccion": "vip",
+   "asientos": 2,
+   "x": 58,
+   "y": 212,
+   "w": 36,
+   "h": 45,
+   "lx": 76,
+   "ly": 282
+  },
+  {
+   "id": "10",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 637,
+   "y": 570,
+   "w": 79,
+   "h": 80
+  },
+  {
+   "id": "11",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 138,
+   "y": 500,
+   "w": 97,
+   "h": 98
+  },
+  {
+   "id": "12",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 296,
+   "y": 483,
+   "w": 108,
+   "h": 109
+  },
+  {
+   "id": "13",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 440,
+   "y": 498,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "14",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 637,
+   "y": 720,
+   "w": 79,
+   "h": 80
+  },
+  {
+   "id": "15",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 138,
+   "y": 600,
+   "w": 97,
+   "h": 90
+  },
+  {
+   "id": "16",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 296,
+   "y": 608,
+   "w": 108,
+   "h": 108
+  },
+  {
+   "id": "17",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 440,
+   "y": 626,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "18",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 140,
+   "y": 741,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "19",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 296,
+   "y": 740,
+   "w": 108,
+   "h": 108
+  },
+  {
+   "id": "20",
+   "seccion": "preferente",
+   "asientos": 4,
+   "x": 440,
+   "y": 749,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "21",
+   "seccion": "general",
+   "asientos": 4,
+   "x": 140,
+   "y": 871,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "22",
+   "seccion": "general",
+   "asientos": 4,
+   "x": 296,
+   "y": 867,
+   "w": 108,
+   "h": 108
+  },
+  {
+   "id": "23",
+   "seccion": "general",
+   "asientos": 4,
+   "x": 440,
+   "y": 880,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "24",
+   "seccion": "general",
+   "asientos": 4,
+   "x": 637,
+   "y": 860,
+   "w": 79,
+   "h": 88
+  },
+  {
+   "id": "25",
+   "seccion": "general",
+   "asientos": 4,
+   "x": 295,
+   "y": 990,
+   "w": 109,
+   "h": 108
+  },
+  {
+   "id": "26",
+   "seccion": "general",
+   "asientos": 4,
+   "x": 440,
+   "y": 1007,
+   "w": 106,
+   "h": 106
+  },
+  {
+   "id": "27",
+   "seccion": "general",
+   "asientos": 4,
+   "x": 640,
+   "y": 1060,
+   "w": 77,
+   "h": 215,
+   "lx": 678,
+   "ly": 1175
+  },
+  {
+   "id": "28",
+   "seccion": "general",
+   "asientos": 2,
+   "x": 493,
+   "y": 1204,
+   "w": 105,
+   "h": 66
+  },
+  {
+   "id": "29",
+   "seccion": "general",
+   "asientos": 2,
+   "x": 361,
+   "y": 1204,
+   "w": 106,
+   "h": 66
+  },
+  {
+   "id": "30",
+   "seccion": "general",
+   "asientos": 2,
+   "x": 215,
+   "y": 1204,
+   "w": 107,
+   "h": 66
+  },
+  {
+   "id": "31",
+   "seccion": "general",
+   "asientos": 2,
+   "x": 192,
+   "y": 1047,
+   "w": 70,
+   "h": 42,
+   "lx": 222,
+   "ly": 1030
+  },
+  {
+   "id": "32",
+   "seccion": "general",
+   "asientos": 2,
+   "x": 97,
+   "y": 1042,
+   "w": 49,
+   "h": 80,
+   "lx": 121,
+   "ly": 1027
+  }
+ ],
+ "decoracion": [
+  {
+   "tipo": "rect",
+   "x": 87,
+   "y": 2,
+   "w": 473,
+   "h": 115,
+   "fill": "#F5E94C",
+   "rx": 4,
+   "texto": "ESCENARIO 4.5 × 2",
+   "ts": 30,
+   "tc": "#1b1b19",
+   "bold": 1
+  },
+  {
+   "tipo": "rect",
+   "x": 72,
+   "y": 0,
+   "w": 10,
+   "h": 170,
+   "fill": "#6f7a73"
+  },
+  {
+   "tipo": "rect",
+   "x": 0,
+   "y": 150,
+   "w": 42,
+   "h": 14,
+   "fill": "#6f7a73"
+  },
+  {
+   "tipo": "texto",
+   "x": 58,
+   "y": 52,
+   "texto": "Cabina Audio",
+   "size": 15,
+   "color": "#8FA0B8",
+   "rot": -90
+  },
+  {
+   "tipo": "texto",
+   "x": 22,
+   "y": 78,
+   "texto": "CAMERINO",
+   "size": 24,
+   "color": "#cfd8e6",
+   "rot": -90,
+   "bold": 1
+  },
+  {
+   "tipo": "rect",
+   "x": 52,
+   "y": 170,
+   "w": 6,
+   "h": 770,
+   "fill": "#6f7a73"
+  },
+  {
+   "tipo": "texto",
+   "x": 30,
+   "y": 520,
+   "texto": "ÁREA DE SERVICIO",
+   "size": 22,
+   "color": "#cfd8e6",
+   "rot": -90,
+   "bold": 1,
+   "ls": 5
+  },
+  {
+   "tipo": "rect",
+   "x": 0,
+   "y": 702,
+   "w": 55,
+   "h": 27,
+   "fill": "#1f9d55",
+   "texto": "SALIDA",
+   "ts": 10,
+   "tc": "#fff"
+  },
+  {
+   "tipo": "rect",
+   "x": 93,
+   "y": 275,
+   "w": 39,
+   "h": 40,
+   "fill": "#6f7a73",
+   "texto": "MURO",
+   "ts": 10,
+   "tc": "#F5E94C"
+  },
+  {
+   "tipo": "rect",
+   "x": 93,
+   "y": 750,
+   "w": 37,
+   "h": 40,
+   "fill": "#6f7a73",
+   "texto": "MURO",
+   "ts": 10,
+   "tc": "#F5E94C"
+  },
+  {
+   "tipo": "rect",
+   "x": 554,
+   "y": 751,
+   "w": 37,
+   "h": 40,
+   "fill": "#6f7a73",
+   "texto": "MURO",
+   "ts": 10,
+   "tc": "#F5E94C"
+  },
+  {
+   "tipo": "rect",
+   "x": 563,
+   "y": 0,
+   "w": 20,
+   "h": 285,
+   "fill": "#6f7a73"
+  },
+  {
+   "tipo": "rect",
+   "x": 563,
+   "y": 265,
+   "w": 80,
+   "h": 20,
+   "fill": "#6f7a73"
+  },
+  {
+   "tipo": "texto",
+   "x": 578,
+   "y": 150,
+   "texto": "PARED",
+   "size": 12,
+   "color": "#F5E94C",
+   "rot": -90
+  },
+  {
+   "tipo": "texto",
+   "x": 596,
+   "y": 214,
+   "texto": "MEZZANINE",
+   "size": 14,
+   "color": "#cfd8e6",
+   "anchor": "start"
+  },
+  {
+   "tipo": "rect",
+   "x": 593,
+   "y": 47,
+   "w": 122,
+   "h": 117,
+   "fill": "#2F6FD1",
+   "rx": 14,
+   "texto": "WC",
+   "ts": 34,
+   "tc": "#fff",
+   "bold": 1
+  },
+  {
+   "tipo": "texto",
+   "x": 655,
+   "y": 420,
+   "texto": "CAP. HASTA",
+   "size": 17,
+   "color": "#4C8DFF",
+   "bold": 1
+  },
+  {
+   "tipo": "texto",
+   "x": 655,
+   "y": 446,
+   "texto": "140 P",
+   "size": 17,
+   "color": "#4C8DFF",
+   "bold": 1
+  },
+  {
+   "tipo": "texto",
+   "x": 4,
+   "y": 1004,
+   "texto": "ÁREA DE FOTOS",
+   "size": 15,
+   "color": "#cfd8e6",
+   "bold": 1,
+   "anchor": "start"
+  },
+  {
+   "tipo": "rect",
+   "x": 118,
+   "y": 1222,
+   "w": 70,
+   "h": 50,
+   "fill": "#8a6a3a",
+   "rx": 6,
+   "texto": "RECEPCIÓN",
+   "ts": 10,
+   "tc": "#fff"
+  },
+  {
+   "tipo": "texto",
+   "x": 8,
+   "y": 1272,
+   "texto": "ENTRADA Y SALIDA",
+   "size": 14,
+   "color": "#cfd8e6",
+   "rot": -55,
+   "bold": 1,
+   "anchor": "start"
+  }
+ ]
+}
