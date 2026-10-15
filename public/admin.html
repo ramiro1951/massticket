@@ -89,6 +89,10 @@
         <select id="e-mapa"><option value="">Sin mapa</option></select>
         <p class="zona-nota">Si el lugar tiene mapa, el cliente elige mesas completas. Aquí solo pones el precio por persona de cada sección; el cupo sale de las mesas del mapa.</p>
       </div>
+      <div class="campo">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="e-oculto" style="width:auto"> Ocultar evento (no aparece en la página de inicio)</label>
+        <p class="zona-nota">Un evento oculto solo se puede abrir y comprar con su enlace directo (botón "Copiar enlace" en la lista de eventos). Sirve para hacer pruebas o para preparar un evento antes de anunciarlo. Quita la marca para que aparezca en la página de inicio.</p>
+      </div>
       <div class="campo" id="mapa-precios" style="display:none">
         <label>Precio por persona de cada sección (MXN)</label>
         <div id="mapa-precios-lista"></div>
@@ -316,17 +320,25 @@ function pintarListaEventosAdmin(){
     <div class="fila-evento">
       ${e.imagen ? `<img src="${e.imagen}" alt="">` : `<img alt="">`}
       <div>
-        <div class="nombre">${escapar(e.nombre)}</div>
+        <div class="nombre">${escapar(e.nombre)}${e.oculto ? ' <span style="font-size:12px;color:var(--ambar);border:1px solid var(--ambar);border-radius:6px;padding:1px 6px;margin-left:6px">Oculto</span>' : ''}</div>
         <div class="detalle">${escapar(fechaLegible(e.fecha))} · ${escapar(e.lugar||"")} · ${e.zonas&&e.zonas.length ? "desde "+pesos(e.precio) : pesos(e.precio)} · ${e.vendidos}/${e.cupo} vendidos</div>
       </div>
       <div class="acciones">
         <button class="btn claro" data-editar="${e.id}">Editar</button>
         <a class="btn claro" href="/comprar.html?evento=${encodeURIComponent(e.id)}" target="_blank">Ver página</a>
+        <button class="btn claro" data-enlace="${e.id}">Copiar enlace</button>
         <button class="btn claro" data-borrar="${e.id}" style="color:var(--rojo)">Borrar</button>
       </div>
     </div>`).join("");
   cont.querySelectorAll("[data-editar]").forEach(b=>{
     b.onclick = ()=> cargarEventoParaEditar(b.dataset.editar);
+  });
+  cont.querySelectorAll("[data-enlace]").forEach(b=>{
+    b.onclick = async ()=>{
+      const enlace = location.origin + "/comprar.html?evento=" + encodeURIComponent(b.dataset.enlace);
+      try{ await navigator.clipboard.writeText(enlace); b.textContent = "¡Copiado!"; setTimeout(()=>b.textContent="Copiar enlace", 1800); }
+      catch(e){ window.prompt("Copia el enlace:", enlace); }
+    };
   });
   cont.querySelectorAll("[data-borrar]").forEach(b=>{
     b.onclick = ()=> borrarEvento(b.dataset.borrar);
@@ -475,6 +487,7 @@ $("#b-agregar-zona").onclick = ()=> agregarFilaZona();
 
 function limpiarFormularioEvento(){
   eventoEditando = null;
+  $("#e-oculto").checked = false;
   $("#e-mapa").value = ""; pintarPreciosMapa([]);
   $("#zonas-lista").innerHTML = ""; actualizarModoZonas();
   $("#e-nombre").value=""; $("#e-fecha").value=""; $("#e-lugar").value="";
@@ -493,6 +506,7 @@ function cargarEventoParaEditar(id){
   $("#e-lugar").value = e.lugar||"";
   $("#e-precio").value = e.precio;
   $("#e-cupo").value = e.cupo;
+  $("#e-oculto").checked = !!e.oculto;
   $("#zonas-lista").innerHTML = "";
   $("#e-mapa").value = e.mapaId || "";
   if(e.mapaId){ pintarPreciosMapa(e.zonas); }
@@ -540,6 +554,7 @@ $("#b-guardar-evento").onclick = async ()=>{
     precio: Number($("#e-precio").value||0), cupo: Number($("#e-cupo").value||1),
     zonas: leerZonasFormulario(),
     mapaId: $("#e-mapa").value,
+    oculto: $("#e-oculto").checked,
     imagen: imagenPendiente
   };
   const btn = $("#b-guardar-evento");
