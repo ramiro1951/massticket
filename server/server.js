@@ -92,7 +92,7 @@ function folioNuevo(i) {
 // Si de verdad completa el pago después de esto, el webhook lo confirma
 // igual y se le emite su boleto -no se pierde el pago, solo deja de tapar
 // el cupo de otros mientras tanto.
-const VENTANA_RESERVA_MS = 45 * 60 * 1000; // 45 minutos
+const VENTANA_RESERVA_MS = 20 * 60 * 1000; // 20 minutos
 
 // Cuántos lugares ya están tomados de un evento: boletos ya emitidos más
 // ventas pendientes de pago RECIENTES (para no vender de más mientras
@@ -765,7 +765,7 @@ app.post("/api/comprar", async (req, res) => {
       // para que nadie pague una mesa que ya se le dio a otra persona. Si
       // Mercado Pago rechazara esa opción, se reintenta sin vencimiento.
       try {
-        resultado = await preference.create({ body: { ...cuerpoPreferencia, ...expiracionMP(44) } });
+        resultado = await preference.create({ body: { ...cuerpoPreferencia, ...expiracionMP(19) } });
       } catch (e) {
         console.warn("Mercado Pago no aceptó el vencimiento; se reintenta sin él:", e?.message || e);
         resultado = await preference.create({ body: cuerpoPreferencia });
