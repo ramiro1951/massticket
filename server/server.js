@@ -58,6 +58,14 @@ async function leerDB() {
     if (!Array.isArray(db.eventos)) db.eventos = [];
     if (!Array.isArray(db.ventas)) db.ventas = [];
     if (!Array.isArray(db.boletos)) db.boletos = [];
+    // Eventos con mapa de mesas: el cupo sale del mapa, así que si el mapa se
+    // corrige (por ejemplo, una mesa de otro tamaño) el evento se actualiza
+    // solo, conservando los precios que ya tenía.
+    for (const e of db.eventos) {
+      if (!e.mapaId) continue;
+      const mapa = cargarMapa(e.mapaId);
+      if (mapa) aplicarMapaAEvento(e, mapa, zonasDeMapa(mapa, [], zonasDe(e)));
+    }
     return db;
   } catch {
     return { eventos: [], ventas: [], boletos: [] };
