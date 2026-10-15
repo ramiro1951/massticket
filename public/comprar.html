@@ -61,6 +61,7 @@
       </div>
       <div class="campo" id="caja-mesas" style="display:none">
         <label>Elige tu mesa</label>
+        <p class="ayuda" style="margin:0 0 8px"><strong>Tienes 20 minutos para pagar</strong> desde que eliges tu mesa y pasas al pago. Pasado ese tiempo la mesa se libera para otras personas.</p>
         <div id="mapa-mesas"></div>
         <div id="resumen-mesas" style="margin-top:12px"></div>
       </div>
@@ -74,6 +75,7 @@
         <button class="btn claro" id="b-whatsapp" type="button">Comprar por WhatsApp</button>
         <div class="total" id="c-total">$0</div>
       </div>
+      <p class="ayuda" style="margin:12px 0 0">Al pasar al pago, tus lugares quedan reservados por <strong>20 minutos</strong>. Si no completas el pago en ese tiempo, se liberan y tendrás que elegirlos de nuevo.</p>
     </div>
     <p class="ayuda" style="margin-top:14px"><strong>No necesitas tener cuenta de Mercado Pago.</strong> Puedes pagar como invitado con tu tarjeta de débito o crédito. Al pagar te llevamos a la página segura de Mercado Pago; ahí elige "Continuar como invitado" si no tienes cuenta. Cuando termines, regresas aquí automáticamente y tus boletos con QR quedan listos.</p>
     <p class="ayuda">¿Prefieres pagar por WhatsApp? Escríbenos con el botón de arriba y coordinamos tu compra directamente.</p>
@@ -129,7 +131,7 @@ async function cargarEvento(){
 
   const params = new URLSearchParams(location.search);
   if(params.get("pago") === "fallo"){
-    mostrarError("El pago no se completó en Mercado Pago. Puedes intentarlo de nuevo cuando quieras.");
+    mostrarError("El pago no se completó en Mercado Pago. Tus lugares se guardan 20 minutos desde que iniciaste el pago; si ya pasó ese tiempo se liberaron y tendrás que elegirlos de nuevo.");
   }
 }
 function mostrarNoEncontrado(){
