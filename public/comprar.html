@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/estilo.css">
+<script src="/mapa-mesas.js"></script>
 <style>
   .zona-compra{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;margin-bottom:10px;border:1px solid var(--linea);border-radius:10px}
   .zona-compra .zona-nombre{font-weight:700;font-size:16px}
@@ -16,6 +17,8 @@
   .zona-compra .zona-agotada{font-size:12.5px;color:var(--rojo);font-weight:700;margin-left:6px}
   .zona-compra input{width:78px;flex:0 0 auto;text-align:center}
   .zona-compra.agotada{opacity:.55}
+  .mesa-linea{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:6px 0;border-bottom:1px solid var(--linea)}
+  .mesa-linea:last-child{border-bottom:none}
 </style>
 </head>
 <body>
@@ -55,6 +58,11 @@
       <div class="campo" id="caja-cantidad">
         <label for="c-cantidad">Boletos</label>
         <input id="c-cantidad" type="number" min="1" max="10" value="1">
+      </div>
+      <div class="campo" id="caja-mesas" style="display:none">
+        <label>Elige tu mesa</label>
+        <div id="mapa-mesas"></div>
+        <div id="resumen-mesas" style="margin-top:12px"></div>
       </div>
       <div class="campo" id="caja-zonas" style="display:none">
         <label>Elige tus boletos</label>
@@ -106,8 +114,12 @@ async function cargarEvento(){
   $("#contenido").style.display = "block";
   $("#ev-nombre").textContent = evento.nombre;
   const conZonas = hayZonas();
-  $("#ev-detalle").textContent = `${fechaLegible(evento.fecha)} · ${evento.lugar||"Lugar por confirmar"} · ${conZonas ? "desde "+pesos(evento.precio)+" por boleto" : pesos(evento.precio)+" por boleto"}`;
-  if(conZonas){
+  const conMapa = hayMapa();
+  $("#ev-detalle").textContent = `${fechaLegible(evento.fecha)} · ${evento.lugar||"Lugar por confirmar"} · ${conZonas ? "desde "+pesos(evento.precio)+" por persona" : pesos(evento.precio)+" por boleto"}`;
+  if(conMapa){
+    $("#caja-cantidad").style.display = "none";
+    iniciarMapa();
+  }else if(conZonas){
     $("#caja-cantidad").style.display = "none";
     $("#caja-zonas").style.display = "";
     pintarZonas();
@@ -125,6 +137,45 @@ function mostrarNoEncontrado(){
   $("#no-encontrado").style.display = "block";
 }
 function hayZonas(){ return !!(evento && evento.zonas && evento.zonas.length); }
+function hayMapa(){ return !!(evento && evento.mapaId && evento.mesas && evento.mesas.length); }
+/* ---------- Mapa de mesas ---------- */
+let mapaCompra = null;
+async function iniciarMapa(){
+  $("#caja-mesas").style.display = "";
+  try{
+    const mapa = await (await fetch("/mapas/"+encodeURIComponent(evento.mapaId)+".json")).json();
+    mapaCompra = MapaMesas.crear($("#mapa-mesas"), {
+      mapa, mesas: evento.mesas, max: 8,
+      onCambio: ()=>calcularTotal(),
+      onLimite: n=>mostrarError("Puedes comprar hasta "+n+" mesas a la vez. Si necesitas más, escríbenos por WhatsApp.")
+    });
+    calcularTotal();
+    // Mantiene el mapa al día si otra persona aparta una mesa mientras se decide.
+    setInterval(refrescarMesas, 45000);
+    document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) refrescarMesas(); });
+  }catch(e){
+    $("#mapa-mesas").innerHTML = '<p class="ayuda">No se pudo cargar el mapa. Recarga la página.</p>';
+  }
+}
+async function refrescarMesas(){
+  if(!mapaCompra) return;
+  try{
+    const r = await fetch("/api/eventos/"+encodeURIComponent(eventoId));
+    if(!r.ok) return;
+    evento = await r.json();
+    mapaCompra.actualizar(evento.mesas);
+  }catch(e){ /* sin conexión: se intenta en la próxima */ }
+}
+function resumenMesasCompra(){
+  const ids = mapaCompra ? mapaCompra.seleccion() : [];
+  let total = 0, boletos = 0;
+  const lineas = ids.map(id=>{
+    const i = mapaCompra.info(id);
+    total += i.mesa; boletos += i.asientos;
+    return {id, texto:`Mesa ${id} · ${i.s.nombre} · ${i.asientos} personas`, precio:i.mesa};
+  });
+  return {ids, total, boletos, lineas};
+}
 let cantidadesZona = {}; // id de zona -> cuántas compras de esa zona
 function pintarZonas(){
   $("#lista-zonas").innerHTML = evento.zonas.map(z=>{
@@ -152,6 +203,14 @@ function pintarZonas(){
 }
 function escaparHtml(t){ return String(t??"").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
 function calcularTotal(){
+  if(hayMapa()){
+    const r = resumenMesasCompra();
+    $("#c-total").textContent = pesos(r.total);
+    $("#resumen-mesas").innerHTML = r.lineas.length
+      ? r.lineas.map(l=>`<div class="mesa-linea"><span>${escaparHtml(l.texto)}</span><span>${pesos(l.precio)}</span></div>`).join("") + `<p class="ayuda" style="margin:8px 0 0">${r.boletos} boletos en total (uno por persona, cada uno con su QR y el número de mesa).</p>`
+      : '<p class="ayuda" style="margin:0">Toca una mesa del mapa para elegirla.</p>';
+    return;
+  }
   if(hayZonas()){
     let total = 0, boletos = 0;
     for(const z of evento.zonas){
@@ -180,7 +239,10 @@ $("#b-comprar").onclick = async ()=>{
   const cantidad = Math.max(1, Math.min(10, parseInt($("#c-cantidad").value||1)));
   if(!nombre){ $("#c-nombre").focus(); mostrarError("Escribe el nombre de quien asiste."); return; }
   const cuerpo = {eventoId, nombre, contacto, telefono};
-  if(hayZonas()){
+  if(hayMapa()){
+    cuerpo.mesas = mapaCompra ? mapaCompra.seleccion() : [];
+    if(!cuerpo.mesas.length){ mostrarError("Elige al menos una mesa en el mapa."); return; }
+  }else if(hayZonas()){
     cuerpo.zonas = evento.zonas.map(z=>({zonaId:z.id, cantidad: cantidadesZona[z.id]||0})).filter(z=>z.cantidad>0);
     if(!cuerpo.zonas.length){ mostrarError("Elige al menos un boleto."); return; }
   }else{
@@ -195,7 +257,7 @@ $("#b-comprar").onclick = async ()=>{
       body: JSON.stringify(cuerpo)
     });
     const datos = await r.json();
-    if(!r.ok){ mostrarError(datos.error || "No se pudo iniciar el pago."); btn.disabled=false; btn.textContent="Pagar con Mercado Pago"; return; }
+    if(!r.ok){ mostrarError(datos.error || "No se pudo iniciar el pago."); btn.disabled=false; btn.textContent="Pagar con Mercado Pago"; refrescarMesas(); return; }
     location.href = datos.initPoint; // Checkout Pro de Mercado Pago
   }catch(e){
     mostrarError("No hay conexión con el servidor. Intenta de nuevo.");
@@ -214,7 +276,11 @@ $("#b-whatsapp").onclick = ()=>{
   const nombreEvento = evento?.nombre || "el evento";
   const fecha = evento ? fechaLegible(evento.fecha) : "";
   let quiero = `${cantidad} boleto${cantidad>1?"s":""}`;
-  if(hayZonas()){
+  if(hayMapa()){
+    const r = resumenMesasCompra();
+    if(!r.ids.length){ mostrarError("Elige al menos una mesa en el mapa."); return; }
+    quiero = r.ids.map(id=>{ const i = mapaCompra.info(id); return `la Mesa ${id} (${i.s.nombre}, ${i.asientos} personas, ${pesos(i.mesa)})`; }).join(" y ");
+  }else if(hayZonas()){
     const partes = evento.zonas.filter(z=>cantidadesZona[z.id]>0).map(z=>`${cantidadesZona[z.id]} de ${z.nombre}`);
     if(!partes.length){ mostrarError("Elige al menos un boleto."); return; }
     quiero = partes.join(", ");
