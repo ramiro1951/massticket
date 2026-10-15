@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/estilo.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/mapa-mesas.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <style>
   .selector-evento{
@@ -84,6 +85,15 @@
         <div class="campo"><label for="e-cupo">Cupo total</label><input id="e-cupo" type="number" min="1" value="200"></div>
       </div>
       <div class="campo">
+        <label for="e-mapa">Mapa de mesas (opcional)</label>
+        <select id="e-mapa"><option value="">Sin mapa</option></select>
+        <p class="zona-nota">Si el lugar tiene mapa, el cliente elige mesas completas. Aquí solo pones el precio por persona de cada sección; el cupo sale de las mesas del mapa.</p>
+      </div>
+      <div class="campo" id="mapa-precios" style="display:none">
+        <label>Precio por persona de cada sección (MXN)</label>
+        <div id="mapa-precios-lista"></div>
+      </div>
+      <div class="campo" id="zonas-bloque">
         <label>Zonas con precios distintos (opcional)</label>
         <p class="zona-nota">Si agregas zonas (Luneta, Preferente, Palco…), el precio y el cupo de arriba se ignoran: el cupo total es la suma de las zonas. "Precio por compra" es lo que paga el cliente cada vez que compra esa zona; "Boletos por compra" es cuántos boletos (personas) incluye (1 normal, 2 o 4 en un palco). "Lugares" es cuántas personas caben en total en esa zona.</p>
         <div id="zonas-lista" style="margin-top:8px"></div>
@@ -152,13 +162,18 @@
         <label for="c-telefono">Celular (para mandar los boletos por WhatsApp)</label>
         <input id="c-telefono" type="tel" placeholder="844 123 4567" autocomplete="off">
       </div>
+      <div class="campo" id="c-mesas-caja" style="display:none">
+        <label>Elige las mesas (cada mesa se vende completa)</label>
+        <div id="c-mapa"></div>
+        <p class="ayuda" id="c-mesas-resumen" style="margin:8px 0 0">Ninguna mesa elegida.</p>
+      </div>
       <div class="campo" id="c-zona-caja" style="display:none">
         <label for="c-zona">Zona</label>
         <select id="c-zona"></select>
         <p class="zona-nota">En eventos con zonas, "Boletos" son personas (un palco de 4 = 4 boletos).</p>
       </div>
       <div class="duo">
-        <div class="campo"><label for="c-cantidad">Boletos</label><input id="c-cantidad" type="number" min="1" max="100" value="1"></div>
+        <div class="campo" id="c-cantidad-caja"><label for="c-cantidad">Boletos</label><input id="c-cantidad" type="number" min="1" max="100" value="1"></div>
         <div class="campo">
           <label for="c-metodo">Forma de pago</label>
           <select id="c-metodo"><option>Efectivo</option><option>Transferencia</option><option>Cortesía</option></select>
@@ -184,6 +199,7 @@
       <label for="sel-evento-panel">Evento:</label>
       <select id="sel-evento-panel"><option value="">Todos los eventos</option></select>
     </div>
+    <div id="panel-avisos"></div>
     <div class="metricas" id="metricas"></div>
     <div class="panel-caja" id="panel-zonas" style="display:none">
       <div style="font-size:14px;margin-bottom:12px">Por zona</div>
@@ -279,6 +295,7 @@ function esPasado(e){
 }
 
 async function iniciarApp(){
+  await cargarMapasDisponibles();
   await cargarEventos();
 }
 
@@ -422,9 +439,30 @@ function agregarFilaZona(z){
 }
 function actualizarModoZonas(){
   const hay = $("#zonas-lista").children.length > 0;
-  $("#e-precio-cupo").style.display = hay ? "none" : "";
+  const conMapa = !!$("#e-mapa").value;
+  $("#e-precio-cupo").style.display = (hay || conMapa) ? "none" : "";
+  $("#zonas-bloque").style.display = conMapa ? "none" : "";
+  $("#mapa-precios").style.display = conMapa ? "" : "none";
 }
+/* ---------- Mapas de mesas (formulario del evento) ---------- */
+let mapasDisponibles = [];
+async function cargarMapasDisponibles(){
+  try{ mapasDisponibles = await (await fetch("/api/mapas")).json(); }catch(e){ mapasDisponibles = []; }
+  $("#e-mapa").innerHTML = '<option value="">Sin mapa</option>' + mapasDisponibles.map(m=>`<option value="${escapar(m.id)}">${escapar(m.nombre)}</option>`).join("");
+}
+function pintarPreciosMapa(zonasPrevias){
+  const m = mapasDisponibles.find(x=>x.id===$("#e-mapa").value);
+  const prev = {}; (zonasPrevias||[]).forEach(z=>prev[z.id]=z.precio);
+  $("#mapa-precios-lista").innerHTML = m ? m.secciones.map(s=>`
+    <div class="campo" style="margin-bottom:8px"><label for="mp-${escapar(s.id)}">${escapar(s.nombre)}</label>
+    <input id="mp-${escapar(s.id)}" data-seccion="${escapar(s.id)}" class="mp-precio" type="number" min="0" step="0.01" value="${prev[s.id]??""}" placeholder="Precio por persona"></div>`).join("") : "";
+  actualizarModoZonas();
+}
+$("#e-mapa").onchange = ()=> pintarPreciosMapa([]);
 function leerZonasFormulario(){
+  if($("#e-mapa").value){
+    return [...document.querySelectorAll(".mp-precio")].map(i=>({id:i.dataset.seccion, precio:Number(i.value||0)}));
+  }
   return [...$("#zonas-lista").children].map(f=>({
     id: f.dataset.id || undefined,
     nombre: f.querySelector(".z-nombre").value.trim(),
@@ -437,6 +475,7 @@ $("#b-agregar-zona").onclick = ()=> agregarFilaZona();
 
 function limpiarFormularioEvento(){
   eventoEditando = null;
+  $("#e-mapa").value = ""; pintarPreciosMapa([]);
   $("#zonas-lista").innerHTML = ""; actualizarModoZonas();
   $("#e-nombre").value=""; $("#e-fecha").value=""; $("#e-lugar").value="";
   $("#e-precio").value=250; $("#e-cupo").value=200;
@@ -455,7 +494,9 @@ function cargarEventoParaEditar(id){
   $("#e-precio").value = e.precio;
   $("#e-cupo").value = e.cupo;
   $("#zonas-lista").innerHTML = "";
-  (e.zonas||[]).forEach(z=>agregarFilaZona(z));
+  $("#e-mapa").value = e.mapaId || "";
+  if(e.mapaId){ pintarPreciosMapa(e.zonas); }
+  else{ pintarPreciosMapa([]); (e.zonas||[]).forEach(z=>agregarFilaZona(z)); }
   actualizarModoZonas();
   imagenPendiente = null;
   if(e.imagen){ $("#e-imagen-preview").src=e.imagen; $("#e-imagen-preview").classList.add("ver"); }
@@ -498,6 +539,7 @@ $("#b-guardar-evento").onclick = async ()=>{
     nombre, fecha: $("#e-fecha").value, lugar: $("#e-lugar").value.trim(),
     precio: Number($("#e-precio").value||0), cupo: Number($("#e-cupo").value||1),
     zonas: leerZonasFormulario(),
+    mapaId: $("#e-mapa").value,
     imagen: imagenPendiente
   };
   const btn = $("#b-guardar-evento");
@@ -540,8 +582,8 @@ async function validar(codigo){
     return;
   }
   if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
-  else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+(r.zona?" ("+r.zona+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
-  else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+(r.zona?r.zona+" · ":"")+r.folio);
+  else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).length?" ("+[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
+  else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")?[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+" · ":"")+r.folio);
   $("#p-folio").value="";
 }
 $("#b-validar").onclick = ()=>validar($("#p-folio").value);
@@ -565,7 +607,7 @@ async function cargarBoletos(){
   pintarTabla(boletos);
   $("#b-buscar").oninput = ()=>{
     const q = $("#b-buscar").value.trim().toLowerCase();
-    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")+(b.telefono||"")+(b.zona||"")).toLowerCase().includes(q)));
+    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")+(b.telefono||"")+(b.zona||"")+(b.mesa?"mesa "+b.mesa:"")).toLowerCase().includes(q)));
   };
 }
 function pintarTabla(lista){
@@ -574,7 +616,7 @@ function pintarTabla(lista){
     ${lista.map(b=>`<tr>
       <td>${b.folio}</td>
       <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div></td>
-      <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}</div></td>
+      <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}${b.mesa?" · Mesa "+escapar(b.mesa):""}</div></td>
       <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
     </tr>`).join("")}</tbody></table>`;
 }
@@ -593,15 +635,47 @@ function botonWhatsApp(r, nombre, telefono){
   const evento = r.evento ? r.evento.nombre : "el evento";
   const fecha = r.evento && r.evento.fecha ? " ("+fechaLegible(r.evento.fecha)+")" : "";
   const n = r.boletos.length;
-  const texto = `Hola ${nombre}, aquí ${n>1?"están tus "+n+" boletos":"está tu boleto"} para ${evento}${fecha}. Ábrelo aquí y presenta el código QR en la entrada: ${r.urlBoletos}`;
+  const mesas = [...new Set(r.boletos.filter(b=>b.mesa).map(b=>b.mesa))];
+  const mesaTxt = mesas.length ? ` ${mesas.length>1?"Tus mesas":"Tu mesa"}: ${mesas.join(", ")}.` : "";
+  const texto = `Hola ${nombre}, aquí ${n>1?"están tus "+n+" boletos":"está tu boleto"} para ${evento}${fecha}.${mesaTxt} Ábrelo aquí y presenta el código QR en la entrada: ${r.urlBoletos}`;
   const num = numeroWhatsApp(telefono);
   const url = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
   const aviso = num ? "" : '<div class="ayuda" style="margin-top:6px">No escribiste celular: WhatsApp te dejará elegir el contacto.</div>';
   return `<div style="grid-column:1/-1;margin-bottom:12px"><a class="btn" href="${url}" target="_blank" rel="noopener" style="background:#25D366;border-color:#25D366;color:#0b1f12">Enviar por WhatsApp</a>${aviso}</div>`;
 }
+/* ---------- Venta manual con mapa de mesas ---------- */
+const cacheMapaJSON = {};
+async function mapaJSON(id){
+  if(!cacheMapaJSON[id]) cacheMapaJSON[id] = await (await fetch("/mapas/"+encodeURIComponent(id)+".json")).json();
+  return cacheMapaJSON[id];
+}
+let mapaVenta = null, mapaVentaEvento = null;
+function resumenMesasVenta(){
+  const ids = mapaVenta ? mapaVenta.seleccion() : [];
+  if(!ids.length){ $("#c-mesas-resumen").textContent = "Ninguna mesa elegida."; return; }
+  let boletos = 0, total = 0;
+  const partes = ids.map(id=>{ const i = mapaVenta.info(id); boletos += i.asientos; total += i.mesa; return "Mesa "+id+" ("+i.s.nombre+", "+i.asientos+" personas)"; });
+  $("#c-mesas-resumen").textContent = partes.join(" · ") + " — " + boletos + " boletos, precio normal " + pesos(total);
+}
+async function pintarMapaVenta(ev){
+  try{
+    const fresco = await api("/api/eventos/"+encodeURIComponent(ev.id));
+    const mapa = await mapaJSON(ev.mapaId);
+    if(mapaVenta && mapaVentaEvento===ev.id){ mapaVenta.actualizar(fresco.mesas); }
+    else{
+      mapaVenta = MapaMesas.crear($("#c-mapa"), {mapa, mesas: fresco.mesas, max: 12, onCambio: resumenMesasVenta});
+      mapaVentaEvento = ev.id;
+    }
+    resumenMesasVenta();
+  }catch(e){ $("#c-mesas-resumen").textContent = "No se pudo cargar el mapa."; }
+}
 function actualizarZonaVenta(){
   const ev = eventos.find(e=>e.id===$("#sel-evento-vender").value);
-  const zs = (ev && ev.zonas) || [];
+  const conMapa = !!(ev && ev.mapaId);
+  $("#c-mesas-caja").style.display = conMapa ? "" : "none";
+  $("#c-cantidad-caja").style.display = conMapa ? "none" : "";
+  if(conMapa){ pintarMapaVenta(ev); } else { mapaVenta = null; mapaVentaEvento = null; }
+  const zs = conMapa ? [] : ((ev && ev.zonas) || []);
   $("#c-zona-caja").style.display = zs.length ? "" : "none";
   const previa = $("#c-zona").value;
   $("#c-zona").innerHTML = zs.map(z=>`<option value="${z.id}">${escapar(z.nombre)} — ${pesos(z.precio/(z.personas||1))} por boleto · quedan ${z.disponibles}</option>`).join("");
@@ -619,6 +693,10 @@ $("#b-registrar").onclick = async ()=>{
     precioManual: $("#c-precio-manual").value.trim(),
     zonaId: $("#c-zona-caja").style.display==="none" ? "" : $("#c-zona").value
   };
+  if($("#c-mesas-caja").style.display !== "none"){
+    cuerpo.mesas = mapaVenta ? mapaVenta.seleccion() : [];
+    if(!cuerpo.mesas.length){ alert("Elige al menos una mesa en el mapa."); return; }
+  }
   try{
     const r = await api("/api/ventas-manuales", {method:"POST", body: JSON.stringify(cuerpo)});
     if(r && r.error){ alert(r.error); return; }
@@ -626,10 +704,11 @@ $("#b-registrar").onclick = async ()=>{
     const telefonoEnviado = cuerpo.telefono;
     cont.innerHTML = botonWhatsApp(r, nombre, telefonoEnviado) + r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
       <h3>${escapar(b.nombre)}</h3><div class="folio">${b.folio}</div>
-      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}</div>
+      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}${b.mesa?" · Mesa "+escapar(b.mesa):""}</div>
     </div><div class="talon"><div class="qr" data-folio="${b.folio}"></div></div></article>`).join("");
     cont.querySelectorAll(".qr").forEach(d=> new QRCode(d, {text:d.dataset.folio, width:100, height:100}));
     $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-telefono").value=""; $("#c-cantidad").value=1; $("#c-precio-manual").value="";
+    if(mapaVenta) mapaVenta.limpiar();
     cargarEventos();
   }catch(e){ alert("No se pudo registrar la venta (¿se llenó el cupo?)"); }
 };
@@ -646,9 +725,10 @@ async function cargarPanel(){
     <div class="metrica"><b>${pesos(p.ingresos)}</b><span>ingresos</span></div>
     <div class="metrica"><b>${p.usados}</b><span>ya entraron</span></div>
     <div class="metrica"><b>${Math.max(0,p.cupo-p.vendidos)}</b><span>lugares libres</span></div>`;
+  $("#panel-avisos").innerHTML = (p.conflictos||[]).map(c=>`<div class="error-caja ver" style="margin-bottom:12px">⚠ Mesa repetida: ${escapar(c.nombre)} pagó la(s) mesa(s) ${escapar(c.mesas.join(", "))}, pero ya estaba(n) vendida(s) a otra persona. Hay que resolverlo con alguno de los dos clientes.</div>`).join("");
   if(p.porZona && p.porZona.length){
     $("#panel-zonas").style.display = "";
-    $("#zonas-resumen").innerHTML = p.porZona.map(z=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(z.nombre)} · ${z.vendidos}/${z.cupo}</span><span>${pesos(z.ingresos)}</span></div>`).join("");
+    $("#zonas-resumen").innerHTML = (p.mesas ? `<div style="font-size:14px;margin-bottom:8px;color:var(--ambar)">Mesas vendidas: ${p.mesas.vendidas} de ${p.mesas.total}</div>` : "") + p.porZona.map(z=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(z.nombre)} · ${z.vendidos}/${z.cupo}</span><span>${pesos(z.ingresos)}</span></div>`).join("");
   }else{
     $("#panel-zonas").style.display = "none";
   }
