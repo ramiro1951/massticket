@@ -431,9 +431,12 @@ app.get("/api/eventos", async (req, res) => {
   // seguir viendo TODOS los eventos (incluidos los ya pasados), porque ahí
   // se siguen administrando boletos y borrando eventos a mano.
   const hoy = hoyMX(); // "AAAA-MM-DD"
-  const mostrarTodos = req.query.todos === "1";
+  // Con ?todos=1 se ven también los eventos pasados y los ocultos, pero solo
+  // si la petición trae la clave de organizador (el panel la manda siempre).
+  const esAdmin = !!ADMIN_KEY && req.get("x-admin-key") === ADMIN_KEY;
+  const mostrarTodos = req.query.todos === "1" && esAdmin;
   const lista = db.eventos
-    .filter((e) => mostrarTodos || !e.fecha || e.fecha >= hoy)
+    .filter((e) => mostrarTodos || (!e.oculto && (!e.fecha || e.fecha >= hoy)))
     .map((e) => conOcupacion(db, e))
     // Orden cronológico: el evento más próximo primero. Los que no tienen
     // fecha todavía ("por confirmar") se van al final, no al principio.
@@ -472,7 +475,7 @@ app.get("/api/mapas", async (req, res) => {
 
 // -------- Crear evento (admin) --------
 app.post("/api/eventos", requiereAdmin, async (req, res) => {
-  const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId } = req.body || {};
+  const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
   await conCandado(async () => {
     const db = await leerDB();
     const mapa = mapaId ? cargarMapa(mapaId) : null;
@@ -486,6 +489,8 @@ app.post("/api/eventos", requiereAdmin, async (req, res) => {
       precio: Math.max(0, Number(precio) || 0),
       cupo: Math.max(1, Number(cupo) || 1),
       imagen: typeof imagen === "string" ? imagen : "",
+      // Oculto: no aparece en la página de inicio; se compra solo con el enlace directo.
+      oculto: oculto === true,
       creado: new Date().toISOString(),
     };
     if (mapa) {
@@ -504,11 +509,12 @@ app.post("/api/eventos", requiereAdmin, async (req, res) => {
 
 // -------- Editar evento (admin) --------
 app.put("/api/eventos/:id", requiereAdmin, async (req, res) => {
-  const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId } = req.body || {};
+  const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
   await conCandado(async () => {
     const db = await leerDB();
     const evento = db.eventos.find((e) => e.id === req.params.id);
     if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
+    if (typeof oculto === "boolean") evento.oculto = oculto;
 
     // Eventos con mapa de mesas: solo se editan datos y precios por persona.
     const quiereMapa = typeof mapaId === "string" ? mapaId : evento.mapaId || "";
