@@ -112,15 +112,25 @@
     mapa.mesas.forEach(m=>{
       const s = secciones[m.seccion] || {color:"#888",texto:"#fff",asiento:"rgba(0,0,0,.3)",nombre:m.seccion};
       const g = el("g", {class:"mm-mesa", tabindex:0, role:"button", "data-id":m.id}, svg);
-      el("rect", {class:"mm-fondo", x:m.x, y:m.y, width:m.w, height:m.h, rx:10, fill:s.color}, g);
-      asientosDe(m).forEach(([cx,cy])=> el("circle", {class:"mm-asiento", cx, cy, r:8, fill:s.asiento}, g));
-      const tam = Math.max(20, Math.min(30, Math.min(m.w, m.h) * 0.3));
-      const lx = m.lx !== undefined ? m.lx : m.x + m.w/2;
-      const ly = m.ly !== undefined ? m.ly : m.y + m.h/2;
+      // Una mesa puede tener varias partes (por ejemplo, dos sofás que se
+      // venden juntos como una sola mesa): todas se eligen a la vez.
+      const partes = m.partes || [m];
+      partes.forEach(pt=>{
+        el("rect", {class:"mm-fondo", x:pt.x, y:pt.y, width:pt.w, height:pt.h, rx:10, fill:s.color}, g);
+        asientosDe({x:pt.x, y:pt.y, w:pt.w, h:pt.h, asientos:pt.asientos}).forEach(([cx,cy])=> el("circle", {class:"mm-asiento", cx, cy, r:8, fill:s.asiento}, g));
+      });
+      const r0 = partes[0];
+      const tam = Math.max(20, Math.min(30, Math.min(r0.w, r0.h) * 0.3));
+      const lx = m.lx !== undefined ? m.lx : r0.x + r0.w/2;
+      const ly = m.ly !== undefined ? m.ly : r0.y + r0.h/2;
       const fuera = m.lx !== undefined;
-      const t = el("text", {x:lx, y:ly, "text-anchor":"middle", "dominant-baseline":"central", "font-size":tam, "font-weight":700, "font-family":"Anton,Archivo,sans-serif", fill: fuera ? "#F5EFE1" : s.texto, "pointer-events":"none"}, g);
+      if(m.partes){
+        // el número va en una etiqueta del color de la sección, entre las partes
+        el("rect", {class:"mm-fondo", x:lx-22, y:ly-17, width:44, height:34, rx:8, fill:s.color}, g);
+      }
+      const t = el("text", {x:lx, y:ly, "text-anchor":"middle", "dominant-baseline":"central", "font-size":tam, "font-weight":700, "font-family":"Anton,Archivo,sans-serif", fill: (fuera && !m.partes) ? "#F5EFE1" : s.texto, "pointer-events":"none"}, g);
       t.textContent = m.id;
-      if(fuera){ // etiqueta fuera de la mesa: se cubre también con un área tocable
+      if(fuera && !m.partes){ // etiqueta fuera de la mesa: se cubre también con un área tocable
         el("rect", {x:lx-16, y:ly-16, width:32, height:32, fill:"transparent"}, g);
       }
       grupos[m.id] = g;
