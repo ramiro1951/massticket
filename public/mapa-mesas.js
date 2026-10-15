@@ -57,6 +57,9 @@
     if(asientos === 2){
       return w >= h ? [[x+w*0.28, cy],[x+w*0.72, cy]] : [[cx, y+h*0.28],[cx, y+h*0.72]];
     }
+    if(asientos === 3){
+      return [[cx, y+dy],[x+dx, y+h-dy],[x+w-dx, y+h-dy]]; // triángulo: deja libre el centro para el número
+    }
     return [[cx, y+dy],[x+w-dx, cy],[cx, y+h-dy],[x+dx, cy]];
   }
 
@@ -79,7 +82,7 @@
     caja.appendChild(leyenda);
     const nota = document.createElement("p");
     nota.className = "mm-nota";
-    nota.textContent = "Cada mesa se compra completa: las mesas de 4 personas llevan 4 boletos y las de 2 personas llevan 2. Pasa el cursor (o toca) una mesa para ver su precio.";
+    nota.textContent = "Cada mesa se compra completa: compras un boleto por cada persona que cabe en la mesa (4, 3 o 2 según la mesa). Pasa el cursor (o toca) una mesa para ver su precio.";
     caja.appendChild(nota);
 
     const [vx,vy,vw,vh] = mapa.viewBox;
