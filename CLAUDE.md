@@ -45,6 +45,8 @@ Railway deploys automatically from GitHub (`npm start`). Whatever is pushed to t
 deployed branch goes live immediately. Work on a feature branch, and only merge to main
 when the user says so. Secrets live only in Railway Variables, never in the repo.
 Railway restarts reset the container, so `DATA_DIR` must point to a persistent volume.
+Confirmed in Railway: `DATA_DIR=/data` and the volume is mounted at `/data`, so `db.json`
+persists across restarts and deploys.
 
 ## Working rules for Claude
 - Ask before changing payment, webhook, capacity/reservation or ticket-validation logic.
