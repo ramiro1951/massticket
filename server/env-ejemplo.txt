@@ -18,5 +18,16 @@ PUBLIC_URL=https://massticket.mx
 # Que sea larga y solo la sepas tú.
 ADMIN_KEY=cambia-esto-por-algo-largo-y-dificil
 
+# Correo con Resend (boletos en PDF y respaldos). Sin RESEND_API_KEY no se manda ningún correo.
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
+EMAIL_FROM=MassTicket <boletos@massticket.mx>
+
+# A dónde se manda el respaldo diario de db.json (y el aviso si db.json se daña).
+# Usa un correo tuyo con verificación en dos pasos: el respaldo trae datos de clientes.
+BACKUP_EMAIL=tu-correo@ejemplo.com
+
+# Carpeta donde se guarda db.json (en Railway, el volumen: /data). En local se puede omitir.
+# DATA_DIR=/data
+
 # Puerto en el que corre el servidor (la mayoría de los hostings lo asignan solos)
 PORT=3000

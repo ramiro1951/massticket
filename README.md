@@ -154,6 +154,30 @@ cupo.
   **volumen persistente** apuntando a `server/data`, o pide que se
   migre a una base de datos real (Postgres) si vas a vender boletos todo
   el año.
+- **Respaldos.** El plan Hobby de Railway no respalda el volumen, así que el
+  servidor lo hace solo:
+  - Cada mañana (poco después de las 6:00 am, hora de México) guarda una
+    copia en `/data/respaldos/db-AAAA-MM-DD.json` (se conservan 14 días) y,
+    si configuraste `BACKUP_EMAIL` (y `RESEND_API_KEY`), te la manda por
+    correo comprimida (`.json.gz`).
+  - En el panel, pestaña **Panel**, el botón **Descargar respaldo** baja una
+    copia completa en ese momento.
+  - Si `db.json` llegara a dañarse, el sitio se pone **en mantenimiento**
+    (la API responde 503) en lugar de borrar los datos, guarda una copia del
+    archivo dañado (`/data/db.corrupto-....json`) y te avisa por correo.
+  - **Para restaurar** (instala la CLI de Railway y entra con `railway ssh`
+    al servicio):
+    ```
+    ls /data/respaldos
+    cp /data/db.json /data/db.antes-de-restaurar.json
+    cp /data/respaldos/db-AAAA-MM-DD.json /data/db.json
+    ```
+    y después reinicia el servicio en Railway (**Restart**). Si el respaldo
+    que quieres usar es uno del correo o descargado, descomprímelo
+    (`gunzip archivo.json.gz`) y súbelo al volumen en lugar de la copia local.
+    Al restaurar se pierden las ventas hechas después de ese respaldo:
+    revisa los pagos de esas horas en Mercado Pago y usa "Revisar con
+    Mercado Pago" en el Panel.
 - **La verdad de un pago es siempre el webhook**, nunca la pantalla de
   regreso del navegador — así está armado el servidor. Eso evita que
   alguien "invente" boletos cerrando el navegador antes de que Mercado
