@@ -9,6 +9,7 @@ import cors from "cors";
 import crypto from "crypto";
 import fs from "fs/promises";
 import { readFileSync } from "fs";
+import { gzipSync } from "zlib";
 import path from "path";
 import { fileURLToPath } from "url";
 import { v4 as uuid } from "uuid";
@@ -31,6 +32,7 @@ const {
   ADMIN_KEY,
   RESEND_API_KEY,
   EMAIL_FROM = "MassTicket <boletos@massticket.mx>",
+  BACKUP_EMAIL,
   PORT = 3000,
 } = process.env;
 
@@ -38,6 +40,7 @@ if (!MP_ACCESS_TOKEN) console.warn("⚠️  Falta MP_ACCESS_TOKEN en las variabl
 if (!MP_WEBHOOK_SECRET) console.warn("⚠️  Falta MP_WEBHOOK_SECRET: el webhook no podrá verificar firmas.");
 if (!ADMIN_KEY) console.warn("⚠️  Falta ADMIN_KEY: el panel de organizador quedaría sin contraseña.");
 if (!RESEND_API_KEY) console.warn("⚠️  Falta RESEND_API_KEY: los boletos no se enviarán por correo automáticamente.");
+if (!BACKUP_EMAIL) console.warn("⚠️  Falta BACKUP_EMAIL: el respaldo diario solo se guardará en el servidor, no por correo.");
 
 const mpClient = new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN });
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
@@ -51,29 +54,155 @@ function conCandado(fn) {
   return resultado;
 }
 
-async function leerDB() {
+// Si db.json existe pero no se puede leer (por ejemplo, quedó cortado), el
+// sitio se pone "en mantenimiento" en lugar de seguir como si la base
+// estuviera vacía: antes eso hacía que la siguiente venta guardara una base
+// vacía encima y se perdiera todo. Se arregla restaurando un respaldo y
+// reiniciando el servidor.
+let dbDañada = false;
+async function marcarDBDañada(err) {
+  if (dbDañada) return;
+  dbDañada = true;
+  console.error("🚨 db.json no se pudo leer; el sitio queda en mantenimiento para no perder datos:", err);
   try {
-    const texto = await fs.readFile(DB_PATH, "utf8");
-    const db = JSON.parse(texto);
-    if (!Array.isArray(db.eventos)) db.eventos = [];
-    if (!Array.isArray(db.ventas)) db.ventas = [];
-    if (!Array.isArray(db.boletos)) db.boletos = [];
-    // Eventos con mapa de mesas: el cupo sale del mapa, así que si el mapa se
-    // corrige (por ejemplo, una mesa de otro tamaño) el evento se actualiza
-    // solo, conservando los precios que ya tenía.
-    for (const e of db.eventos) {
-      if (!e.mapaId) continue;
-      const mapa = cargarMapa(e.mapaId);
-      if (mapa) aplicarMapaAEvento(e, mapa, zonasDeMapa(mapa, [], zonasDe(e)));
+    const copia = path.join(DATA_DIR, `db.corrupto-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    await fs.copyFile(DB_PATH, copia);
+    console.error("Se guardó una copia del archivo dañado en", copia);
+  } catch (e) {
+    console.error("No se pudo copiar el archivo dañado:", e);
+  }
+  if (resend && BACKUP_EMAIL) {
+    try {
+      await resend.emails.send({
+        from: EMAIL_FROM,
+        to: BACKUP_EMAIL,
+        subject: "🚨 massticket: db.json dañado, sitio en mantenimiento",
+        html: `<p>El servidor no pudo leer <code>db.json</code> y puso el sitio en mantenimiento para no borrar datos.</p>
+          <p>Restaura el último respaldo (ver README, sección "Respaldos") y reinicia el servicio en Railway.</p>
+          <p>Error: ${String(err?.message || err).replace(/[<>&]/g, "")}</p>`,
+      });
+    } catch (e) {
+      console.error("No se pudo mandar el aviso de db.json dañado:", e);
     }
-    return db;
-  } catch {
-    return { eventos: [], ventas: [], boletos: [] };
   }
 }
+
+async function leerDB() {
+  let db;
+  try {
+    const texto = await fs.readFile(DB_PATH, "utf8");
+    db = JSON.parse(texto);
+    if (!db || typeof db !== "object") throw new Error("db.json no contiene un objeto");
+  } catch (err) {
+    // Solo si el archivo de verdad no existe (sitio nuevo) se empieza en blanco.
+    if (err.code === "ENOENT") return { eventos: [], ventas: [], boletos: [] };
+    await marcarDBDañada(err);
+    throw new Error("db.json dañado");
+  }
+  if (!Array.isArray(db.eventos)) db.eventos = [];
+  if (!Array.isArray(db.ventas)) db.ventas = [];
+  if (!Array.isArray(db.boletos)) db.boletos = [];
+  // Eventos con mapa de mesas: el cupo sale del mapa, así que si el mapa se
+  // corrige (por ejemplo, una mesa de otro tamaño) el evento se actualiza
+  // solo, conservando los precios que ya tenía.
+  for (const e of db.eventos) {
+    if (!e.mapaId) continue;
+    const mapa = cargarMapa(e.mapaId);
+    if (mapa) aplicarMapaAEvento(e, mapa, zonasDeMapa(mapa, [], zonasDe(e)));
+  }
+  return db;
+}
+// Se escribe primero a un archivo temporal y luego se renombra: el cambio de
+// nombre es instantáneo, así que db.json nunca queda escrito a medias aunque
+// el servidor se caiga o Railway lo reinicie justo en ese momento.
 async function escribirDB(datos) {
   await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
-  await fs.writeFile(DB_PATH, JSON.stringify(datos, null, 2));
+  const temporal = DB_PATH + ".tmp";
+  const archivo = await fs.open(temporal, "w");
+  try {
+    await archivo.writeFile(JSON.stringify(datos, null, 2));
+    await archivo.sync();
+  } finally {
+    await archivo.close();
+  }
+  await fs.rename(temporal, DB_PATH);
+}
+
+/* ---------------- Respaldos ---------------- */
+// El plan Hobby de Railway no tiene respaldos automáticos, así que una vez al
+// día (poco después de las 6:00 am de México, cuando cambia hoyMX()) se guarda
+// una copia en /data/respaldos (se conservan 14 días) y, si hay BACKUP_EMAIL,
+// se manda comprimida por correo. La fecha del último respaldo se guarda en un
+// archivo para que un reinicio no lo mande dos veces ni se salte un día.
+const RESPALDOS_DIR = path.join(DATA_DIR, "respaldos");
+const ULTIMO_RESPALDO_PATH = path.join(DATA_DIR, "ultimo-respaldo.txt");
+const DIAS_RESPALDOS_LOCALES = 14;
+const MAX_ADJUNTO_BYTES = 35 * 1024 * 1024; // Resend acepta hasta 40 MB por correo
+const MAX_INTENTOS_RESPALDO = 3; // por día, para no gastar la cuota de Resend si algo falla
+const intentosRespaldo = { dia: "", n: 0 };
+
+// Texto actual de db.json, leído dentro del candado para no tomarlo a la mitad
+// de una escritura. Falla si el archivo no es JSON válido.
+async function textoDB() {
+  return conCandado(async () => {
+    const texto = await fs.readFile(DB_PATH, "utf8");
+    JSON.parse(texto);
+    return texto;
+  });
+}
+
+async function respaldoDiario() {
+  const hoy = hoyMX();
+  if (dbDañada) return; // ya se avisó; no se respalda un archivo dañado
+  try {
+    const ultimo = (await fs.readFile(ULTIMO_RESPALDO_PATH, "utf8").catch(() => "")).trim();
+    if (ultimo === hoy) return;
+    if (intentosRespaldo.dia !== hoy) Object.assign(intentosRespaldo, { dia: hoy, n: 0 });
+    if (intentosRespaldo.n >= MAX_INTENTOS_RESPALDO) return;
+    intentosRespaldo.n++;
+
+    let texto;
+    try {
+      texto = await textoDB();
+    } catch (err) {
+      if (err.code === "ENOENT") return; // todavía no hay datos que respaldar
+      throw err;
+    }
+
+    // Copia local, borrando las de más de DIAS_RESPALDOS_LOCALES días.
+    await fs.mkdir(RESPALDOS_DIR, { recursive: true });
+    await fs.writeFile(path.join(RESPALDOS_DIR, `db-${hoy}.json`), texto);
+    const locales = (await fs.readdir(RESPALDOS_DIR)).filter((f) => /^db-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+    for (const viejo of locales.slice(0, Math.max(0, locales.length - DIAS_RESPALDOS_LOCALES))) {
+      await fs.unlink(path.join(RESPALDOS_DIR, viejo));
+    }
+
+    // Copia por correo, comprimida.
+    if (resend && BACKUP_EMAIL) {
+      const comprimido = gzipSync(texto);
+      const pesoMB = (comprimido.length / 1024 / 1024).toFixed(1);
+      const correo = comprimido.length <= MAX_ADJUNTO_BYTES
+        ? {
+            subject: `Respaldo massticket ${hoy}`,
+            html: `<p>Respaldo diario de <code>db.json</code> (${pesoMB} MB comprimido).</p>
+              <p>Contiene datos personales de clientes: guárdalo en un lugar seguro.</p>
+              <p>Para abrirlo, descomprime el archivo <code>.gz</code>; adentro está el <code>db.json</code>.</p>`,
+            attachments: [{ filename: `massticket-respaldo-${hoy}.json.gz`, content: comprimido.toString("base64") }],
+          }
+        : {
+            subject: `⚠️ Respaldo massticket ${hoy}: demasiado grande para el correo`,
+            html: `<p>El respaldo pesa ${pesoMB} MB comprimido y no cabe en un correo.</p>
+              <p>Se guardó en el servidor y puedes bajarlo con el botón "Descargar respaldo" del Panel.</p>`,
+          };
+      const { error } = await resend.emails.send({ from: EMAIL_FROM, to: BACKUP_EMAIL, ...correo });
+      if (error) throw new Error(error.message || JSON.stringify(error));
+    }
+
+    await fs.writeFile(ULTIMO_RESPALDO_PATH, hoy);
+    console.log(`Respaldo del ${hoy} listo${resend && BACKUP_EMAIL ? " y enviado a " + BACKUP_EMAIL : " (solo copia local)"}.`);
+  } catch (err) {
+    console.error("Error haciendo el respaldo diario:", err);
+  }
 }
 
 /* ---------------- Utilidades ---------------- */
@@ -429,6 +558,16 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "12mb" })); // 12mb: alcanza para el cartel del evento en base64
 app.use(express.static(path.join(__dirname, "..", "public")));
+
+// Con db.json dañado no se atiende ninguna petición de la API, para que nadie
+// escriba encima. Al webhook también se le contesta 503: así Mercado Pago
+// vuelve a mandar el aviso más tarde, cuando ya se restauró el respaldo.
+app.use("/api", (req, res, next) => {
+  if (dbDañada) {
+    return res.status(503).json({ error: "El sitio está en mantenimiento. Intenta de nuevo en unos minutos." });
+  }
+  next();
+});
 
 // -------- Eventos: listar (público, para la página de inicio) --------
 app.get("/api/eventos", async (req, res) => {
@@ -1237,7 +1376,28 @@ app.get("/api/panel", requiereAdmin, async (req, res) => {
   });
 });
 
+// -------- Admin: descargar respaldo completo de db.json --------
+app.get("/api/admin/respaldo", requiereAdmin, async (req, res) => {
+  try {
+    const texto = await textoDB();
+    res.set("Content-Type", "application/json; charset=utf-8");
+    res.set("Content-Disposition", `attachment; filename="massticket-respaldo-${hoyMX()}.json"`);
+    res.set("Cache-Control", "no-store");
+    res.send(texto);
+  } catch (err) {
+    console.error("Error descargando respaldo:", err);
+    res.status(500).json({ error: "No se pudo generar el respaldo." });
+  }
+});
+
+// Antes de abrir el sitio se revisa que db.json se pueda leer; si está
+// dañado, queda en mantenimiento desde el principio (ver marcarDBDañada).
+await leerDB().catch(() => {});
+
 app.listen(PORT, () => {
   console.log(`massticket backend escuchando en el puerto ${PORT}`);
   console.log(`URL pública configurada: ${PUBLIC_URL}`);
 });
+
+setTimeout(respaldoDiario, 60 * 1000);
+setInterval(respaldoDiario, 15 * 60 * 1000);

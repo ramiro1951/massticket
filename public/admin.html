@@ -213,6 +213,12 @@
       <div style="font-size:14px;margin-bottom:12px">Ingresos por forma de pago</div>
       <div id="metodos"></div>
     </div>
+    <div class="panel-caja">
+      <div style="font-size:14px;margin-bottom:12px">Respaldo de datos</div>
+      <button class="btn claro" id="b-respaldo">Descargar respaldo</button>
+      <div class="ayuda" style="margin-top:10px">Descarga una copia completa de todos los eventos, ventas y boletos (archivo .json). Además, cada mañana se manda una copia automática por correo. Contiene datos personales de clientes: guárdala en un lugar seguro.</div>
+      <div id="respaldo-error" style="color:var(--rojo);font-size:13.5px;margin-top:8px"></div>
+    </div>
   </section>
 
   <!-- CLIENTES -->
@@ -820,6 +826,28 @@ $("#b-clientes-csv").onclick = ()=>{
   a.href = url; a.download = "clientes-massticket.csv";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+};
+
+/* ---------- Respaldo ---------- */
+$("#b-respaldo").onclick = async ()=>{
+  const btn = $("#b-respaldo");
+  $("#respaldo-error").textContent = "";
+  btn.disabled = true; btn.textContent = "Preparando…";
+  try{
+    const r = await fetch("/api/admin/respaldo", { headers: {"x-admin-key": clave} });
+    if(r.status === 401) throw new Error("La clave ya no es válida; vuelve a entrar.");
+    if(!r.ok) throw new Error("No se pudo descargar el respaldo. Intenta de nuevo.");
+    const nombre = (r.headers.get("Content-Disposition")||"").match(/filename="([^"]+)"/)?.[1] || "massticket-respaldo.json";
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = nombre;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }catch(e){
+    $("#respaldo-error").textContent = e.message;
+  }finally{
+    btn.disabled = false; btn.textContent = "Descargar respaldo";
+  }
 };
 </script>
 </body>
