@@ -1340,10 +1340,24 @@ app.get("/api/boletos", requiereAdmin, seguro(async (req, res) => {
 // -------- Puerta: validar folio (admin) --------
 app.post("/api/validar", requiereAdmin, seguro(async (req, res) => {
   const folio = String(req.body?.folio || "").trim().toUpperCase();
+  // Evento que se está revisando en la puerta. Un boleto de otro evento (por
+  // ejemplo, uno más barato o uno que ya pasó) no deja entrar ni se marca
+  // como usado. Si no viene (una pestaña del panel abierta desde antes de
+  // este cambio), se valida como antes, sin revisar el evento.
+  const eventoId = String(req.body?.eventoId || "");
   await conCandado(async () => {
     const db = await leerDB();
     const b = db.boletos.find((x) => x.folio === folio);
     if (!b) return res.status(404).json({ resultado: "no_existe" });
+    if (eventoId && b.eventoId !== eventoId) {
+      const suEvento = db.eventos.find((e) => e.id === b.eventoId);
+      return res.status(409).json({
+        resultado: "otro_evento",
+        nombre: b.nombre,
+        evento: suEvento?.nombre || "un evento que ya no existe",
+        fecha: suEvento?.fecha || "",
+      });
+    }
     if (b.estado === "usado") {
       return res.json({ resultado: "repetido", nombre: b.nombre, usadoEn: b.usadoEn, zona: b.zona || "", mesa: b.mesa || "" });
     }

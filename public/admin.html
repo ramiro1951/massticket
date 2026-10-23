@@ -122,7 +122,7 @@
       <label for="sel-evento-puerta">Evento:</label>
       <select id="sel-evento-puerta"></select>
     </div>
-    <p class="ayuda">Escanea el QR del boleto o teclea el folio. Los folios son únicos en todo el sitio, así que aunque valides aquí, se valida en el evento correcto automáticamente.</p>
+    <p class="ayuda">Elige arriba el evento que se está realizando, luego escanea el QR del boleto o teclea el folio. Solo entran boletos de ese evento: si alguien trae un boleto de otro evento, aquí te avisa y no se registra la entrada.</p>
     <div class="resultado" id="resultado"><h3></h3><p></p></div>
     <div class="panel-caja">
       <div class="campo"><label for="p-folio">Folio del boleto</label><input id="p-folio" placeholder="MT-3F9K-0142" autocomplete="off"></div>
@@ -593,7 +593,7 @@ async function validar(codigo){
   if(!folio) return;
   let r;
   try{
-    r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio})});
+    r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio, eventoId: $("#sel-evento-puerta").value})});
   }catch(e){
     mostrarResultado("malo","No se pudo validar","No hay conexión con el servidor. NO se registró la entrada de "+folio+". Intenta de nuevo antes de dejarlo/a pasar.");
     return;
@@ -603,6 +603,7 @@ async function validar(codigo){
     return;
   }
   if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
+  else if(r.resultado === "otro_evento") mostrarResultado("malo","Boleto de otro evento","Este boleto de "+r.nombre+" es para "+r.evento+(r.fecha?" ("+fechaLegible(r.fecha)+")":"")+", no para el evento elegido arriba. No se registró la entrada.");
   else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).length?" ("+[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
   else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")?[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+" · ":"")+r.folio);
   $("#p-folio").value="";
