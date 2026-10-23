@@ -554,6 +554,12 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
 
 /* ---------------- App ---------------- */
 
+// Express 4 no atrapa los errores de las rutas async: sin esto, un error
+// inesperado (por ejemplo, el disco lleno al guardar) tumbaba todo el
+// servidor y se cortaban las compras que estaban en curso. Con esto, el
+// error llega al manejador del final, que lo registra y contesta 500.
+const seguro = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "12mb" })); // 12mb: alcanza para el cartel del evento en base64
@@ -570,7 +576,7 @@ app.use("/api", (req, res, next) => {
 });
 
 // -------- Eventos: listar (público, para la página de inicio) --------
-app.get("/api/eventos", async (req, res) => {
+app.get("/api/eventos", seguro(async (req, res) => {
   const db = await leerDB();
   // Por defecto (la página pública) solo se muestran eventos de hoy en
   // adelante; al día siguiente del evento deja de aparecer solo, sin que
@@ -594,18 +600,18 @@ app.get("/api/eventos", async (req, res) => {
       return a.fecha.localeCompare(b.fecha);
     });
   res.json(lista);
-});
+}));
 
 // -------- Un evento (público, para la página de compra de ese evento) --------
-app.get("/api/eventos/:id", async (req, res) => {
+app.get("/api/eventos/:id", seguro(async (req, res) => {
   const db = await leerDB();
   const evento = db.eventos.find((e) => e.id === req.params.id);
   if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
   res.json(conOcupacion(db, evento));
-});
+}));
 
 // -------- Mapas de mesas disponibles (para el formulario de eventos) --------
-app.get("/api/mapas", async (req, res) => {
+app.get("/api/mapas", seguro(async (req, res) => {
   try {
     const dir = path.join(__dirname, "..", "public", "mapas");
     const archivos = (await fs.readdir(dir)).filter((f) => f.endsWith(".json"));
@@ -618,10 +624,10 @@ app.get("/api/mapas", async (req, res) => {
   } catch {
     res.json([]);
   }
-});
+}));
 
 // -------- Crear evento (admin) --------
-app.post("/api/eventos", requiereAdmin, async (req, res) => {
+app.post("/api/eventos", requiereAdmin, seguro(async (req, res) => {
   const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
   await conCandado(async () => {
     const db = await leerDB();
@@ -652,10 +658,10 @@ app.post("/api/eventos", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json(nuevo);
   });
-});
+}));
 
 // -------- Editar evento (admin) --------
-app.put("/api/eventos/:id", requiereAdmin, async (req, res) => {
+app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
   const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
   await conCandado(async () => {
     const db = await leerDB();
@@ -726,10 +732,10 @@ app.put("/api/eventos/:id", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json(evento);
   });
-});
+}));
 
 // -------- Borrar evento (admin) --------
-app.delete("/api/eventos/:id", requiereAdmin, async (req, res) => {
+app.delete("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
   await conCandado(async () => {
     const db = await leerDB();
     const tieneBoletos = db.boletos.some((b) => b.eventoId === req.params.id);
@@ -740,10 +746,10 @@ app.delete("/api/eventos/:id", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json({ ok: true });
   });
-});
+}));
 
 // -------- Comprar (público): crea la preferencia y devuelve el link de pago --------
-app.post("/api/comprar", async (req, res) => {
+app.post("/api/comprar", seguro(async (req, res) => {
   const ventaId = uuid();
   let ventaCreada = false;
   try {
@@ -913,17 +919,17 @@ app.post("/api/comprar", async (req, res) => {
     }
     res.status(500).json({ error: "No se pudo iniciar el pago. Intenta de nuevo." });
   }
-});
+}));
 
 // -------- Estado de una venta (para la página de gracias) --------
-app.get("/api/venta/:id", async (req, res) => {
+app.get("/api/venta/:id", seguro(async (req, res) => {
   const db = await leerDB();
   const venta = db.ventas.find((v) => v.id === req.params.id);
   if (!venta) return res.status(404).json({ error: "Venta no encontrada" });
   const boletos = db.boletos.filter((b) => b.ventaId === venta.id);
   const evento = db.eventos.find((e) => e.id === venta.eventoId) || null;
   res.json({ estado: venta.estado, evento, boletos });
-});
+}));
 
 // Aplica un pago YA APROBADO de Mercado Pago a una venta pendiente: la marca
 // como pagada y emite sus boletos. La usan tanto el webhook (apenas llega el
@@ -1022,7 +1028,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
 }
 
 // -------- Webhook de Mercado Pago: única fuente de verdad del pago --------
-app.post("/api/webhook/mercadopago", async (req, res) => {
+app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
   // Responder rápido evita reintentos innecesarios de Mercado Pago;
   // el trabajo pesado va después de contestar.
   res.sendStatus(200);
@@ -1056,7 +1062,7 @@ app.post("/api/webhook/mercadopago", async (req, res) => {
   } catch (err) {
     console.error("Error procesando webhook:", err);
   }
-});
+}));
 
 // -------- Admin: revisar con Mercado Pago las ventas "pendientes" --------
 // Por si el aviso automático (webhook) nunca llegó -por ejemplo si el sitio
@@ -1064,7 +1070,7 @@ app.post("/api/webhook/mercadopago", async (req, res) => {
 // venta por venta, si en realidad ya está aprobada. Las que sí lo están se
 // confirman aquí también: se emiten sus boletos y se manda el correo con el
 // PDF, exactamente igual que si el webhook hubiera funcionado a tiempo.
-app.post("/api/admin/reconciliar-pagos", requiereAdmin, async (req, res) => {
+app.post("/api/admin/reconciliar-pagos", requiereAdmin, seguro(async (req, res) => {
   try {
     const db = await leerDB();
     const pendientes = db.ventas.filter((v) => v.estado === "pendiente");
@@ -1107,10 +1113,10 @@ app.post("/api/admin/reconciliar-pagos", requiereAdmin, async (req, res) => {
     console.error("Error en reconciliación de pagos:", err);
     res.status(500).json({ error: "No se pudo revisar los pagos pendientes." });
   }
-});
+}));
 
 // -------- Admin: venta manual (efectivo/cortesía/promoción en puerta) --------
-app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
+app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
   const eventoId = String(req.body?.eventoId || "");
   const nombre = String(req.body?.nombre || "").trim();
   const contacto = String(req.body?.contacto || "").trim();
@@ -1226,13 +1232,13 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   if (eventoParaCorreo && boletosParaCorreo) {
     enviarBoletosPorEmail({ evento: eventoParaCorreo, nombre, contacto, boletos: boletosParaCorreo });
   }
-});
+}));
 
 // -------- Admin: clientes (junta todos los boletos por comprador) --------
 // Agrupa por correo si hay uno; si no, por teléfono; si tampoco hay eso,
 // por nombre (mejor esfuerzo -dos personas con el mismo nombre y sin
 // correo ni teléfono se verían como una sola, pero es un caso raro).
-app.get("/api/clientes", requiereAdmin, async (req, res) => {
+app.get("/api/clientes", requiereAdmin, seguro(async (req, res) => {
   const db = await leerDB();
   const esEmail = (s) => String(s || "").includes("@");
   const grupos = new Map();
@@ -1283,18 +1289,18 @@ app.get("/api/clientes", requiereAdmin, async (req, res) => {
     .sort((a, b) => (b.ultimaCompra || "").localeCompare(a.ultimaCompra || ""));
 
   res.json(lista);
-});
+}));
 
 // -------- Admin: listar boletos (opcionalmente filtrados por evento) --------
-app.get("/api/boletos", requiereAdmin, async (req, res) => {
+app.get("/api/boletos", requiereAdmin, seguro(async (req, res) => {
   const db = await leerDB();
   const { eventoId } = req.query;
   const lista = eventoId ? db.boletos.filter((b) => b.eventoId === eventoId) : db.boletos;
   res.json(lista);
-});
+}));
 
 // -------- Puerta: validar folio (admin) --------
-app.post("/api/validar", requiereAdmin, async (req, res) => {
+app.post("/api/validar", requiereAdmin, seguro(async (req, res) => {
   const folio = String(req.body?.folio || "").trim().toUpperCase();
   await conCandado(async () => {
     const db = await leerDB();
@@ -1308,10 +1314,10 @@ app.post("/api/validar", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json({ resultado: "ok", nombre: b.nombre, folio: b.folio, zona: b.zona || "", mesa: b.mesa || "" });
   });
-});
+}));
 
 // -------- Panel (admin), opcionalmente filtrado por evento --------
-app.get("/api/panel", requiereAdmin, async (req, res) => {
+app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
   const db = await leerDB();
   const { eventoId, eventoIds } = req.query;
   // Un evento, un grupo de eventos (actuales o pasados, separados por comas;
@@ -1374,10 +1380,10 @@ app.get("/api/panel", requiereAdmin, async (req, res) => {
     ...(porZona ? { porZona } : {}),
     pendientesDePago: ventas.filter((v) => v.estado === "pendiente").length,
   });
-});
+}));
 
 // -------- Admin: descargar respaldo completo de db.json --------
-app.get("/api/admin/respaldo", requiereAdmin, async (req, res) => {
+app.get("/api/admin/respaldo", requiereAdmin, seguro(async (req, res) => {
   try {
     const texto = await textoDB();
     res.set("Content-Type", "application/json; charset=utf-8");
@@ -1388,6 +1394,22 @@ app.get("/api/admin/respaldo", requiereAdmin, async (req, res) => {
     console.error("Error descargando respaldo:", err);
     res.status(500).json({ error: "No se pudo generar el respaldo." });
   }
+}));
+
+// Manejador de errores: va al final, después de todas las rutas. Los errores
+// de la petición (JSON mal formado, cuerpo demasiado grande) conservan su
+// código 4xx; cualquier otro se registra y se contesta 500.
+app.use((err, req, res, next) => {
+  const status = err.status >= 400 && err.status < 500 ? err.status : 500;
+  if (status === 500) console.error(`Error en ${req.method} ${req.originalUrl}:`, err);
+  if (res.headersSent) return next(err);
+  res.status(status).json({ error: status === 500 ? "Ocurrió un error en el servidor. Intenta de nuevo." : "Petición no válida." });
+});
+
+// Último recurso: un error que se escape de todo lo anterior se registra en
+// lugar de apagar el servidor.
+process.on("unhandledRejection", (err) => {
+  console.error("Error no atrapado (el servidor sigue funcionando):", err);
 });
 
 // Antes de abrir el sitio se revisa que db.json se pueda leer; si está
