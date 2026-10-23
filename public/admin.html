@@ -634,13 +634,39 @@ async function cargarBoletos(){
 }
 function pintarTabla(lista){
   if(!lista.length){ $("#tabla-boletos").innerHTML = '<div class="vacio">Todavía no hay boletos para este evento.</div>'; return; }
+  // El estado del correo y el botón de reenviar van una sola vez por compra
+  // (en su primer boleto de la lista), porque el correo lleva todos sus boletos.
+  const ventasVistas = new Set();
+  const lineaCorreo = b => {
+    if(!b.ventaId || ventasVistas.has(b.ventaId)) return "";
+    ventasVistas.add(b.ventaId);
+    const c = b.correo;
+    const estado = !c ? "" : c.estado==="enviado"
+      ? `<span style="color:var(--verde)">Correo enviado</span>`
+      : `<span style="color:var(--rojo)" title="${escapar(c.error||"")}">⚠ El correo no se pudo enviar</span>`;
+    return `<div style="font-size:12px;margin-top:4px">${estado} <button class="btn claro" style="padding:2px 8px;font-size:12px" data-reenviar="${escapar(b.ventaId)}" data-correo="${escapar(b.contacto||"")}">Reenviar correo</button></div>`;
+  };
   $("#tabla-boletos").innerHTML = `<table><thead><tr><th>Folio</th><th>Nombre</th><th>Pago</th><th>Estado</th></tr></thead><tbody>
     ${lista.map(b=>`<tr>
       <td>${b.folio}</td>
-      <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div></td>
+      <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div>${lineaCorreo(b)}</td>
       <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}${b.mesa?" · Mesa "+escapar(b.mesa):""}</div></td>
       <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
     </tr>`).join("")}</tbody></table>`;
+  $("#tabla-boletos").querySelectorAll("[data-reenviar]").forEach(boton=>{
+    boton.onclick = ()=>reenviarCorreo(boton.dataset.reenviar, boton.dataset.correo);
+  });
+}
+async function reenviarCorreo(ventaId, correoActual){
+  const correo = prompt("¿A qué correo se mandan los boletos de esta compra? (Corrígelo si estaba mal escrito)", correoActual.includes("@") ? correoActual : "");
+  if(correo === null) return;
+  try{
+    const r = await api("/api/admin/reenviar-correo", {method:"POST", body: JSON.stringify({ventaId, correo: correo.trim()})});
+    alert(r && r.ok ? "Listo: se mandaron los boletos a "+r.correo.a+"." : (r && r.error) || "No se pudo enviar.");
+  }catch(e){
+    alert("No se pudo enviar. Revisa tu conexión e intenta de nuevo.");
+  }
+  cargarBoletos();
 }
 
 /* ---------- Venta manual ---------- */
@@ -747,7 +773,7 @@ async function cargarPanel(){
     <div class="metrica"><b>${pesos(p.ingresos)}</b><span>ingresos</span></div>
     <div class="metrica"><b>${p.usados}</b><span>ya entraron</span></div>
     <div class="metrica"><b>${Math.max(0,p.cupo-p.vendidos)}</b><span>lugares libres</span></div>`;
-  $("#panel-avisos").innerHTML = (p.conflictos||[]).map(c=>`<div class="error-caja ver" style="margin-bottom:12px">⚠ Mesa repetida: ${escapar(c.nombre)} pagó la(s) mesa(s) ${escapar(c.mesas.join(", "))}, pero ya estaba(n) vendida(s) a otra persona. Hay que resolverlo con alguno de los dos clientes.</div>`).join("");
+  $("#panel-avisos").innerHTML = (p.correosFallidos ? `<div class="error-caja ver" style="margin-bottom:12px">⚠ ${p.correosFallidos} compra(s) no recibieron sus boletos por correo (falló el envío). Búscalas en la pestaña Boletos y usa "Reenviar correo".</div>` : "") + (p.conflictos||[]).map(c=>`<div class="error-caja ver" style="margin-bottom:12px">⚠ Mesa repetida: ${escapar(c.nombre)} pagó la(s) mesa(s) ${escapar(c.mesas.join(", "))}, pero ya estaba(n) vendida(s) a otra persona. Hay que resolverlo con alguno de los dos clientes.</div>`).join("");
   if(p.porZona && p.porZona.length){
     $("#panel-zonas").style.display = "";
     $("#zonas-resumen").innerHTML = (p.mesas ? `<div style="font-size:14px;margin-bottom:8px;color:var(--ambar)">Mesas vendidas: ${p.mesas.vendidas} de ${p.mesas.total}</div>` : "") + p.porZona.map(z=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(z.nombre)} · ${z.vendidos}/${z.cupo}</span><span>${pesos(z.ingresos)}</span></div>`).join("");

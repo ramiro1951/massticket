@@ -531,10 +531,13 @@ async function generarPDFBoletos({ evento, boletos }) {
 // Envía por correo los boletos recién emitidos (compra en línea o venta
 // manual). No hace nada si Resend no está configurado, o si el "contacto"
 // que se guardó no parece un correo (por ejemplo, si es un teléfono).
+// El resultado queda guardado en la venta (venta.correo) para que el panel
+// muestre a quién no le llegaron sus boletos y se los pueda reenviar.
 async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
   if (!resend) return;
   if (!contacto || !contacto.includes("@")) return;
   if (!boletos || !boletos.length) return;
+  let error = null;
   try {
     const pdf = await generarPDFBoletos({ evento, boletos });
     const cantidad = boletos.length;
@@ -542,7 +545,8 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
     const lineaMesas = mesasTexto.length
       ? `<p><strong>Mesa${mesasTexto.length > 1 ? "s" : ""}: ${mesasTexto.join(", ")}</strong></p>`
       : "";
-    await resend.emails.send({
+    // Resend no lanza un error cuando falla el envío: lo devuelve en "error".
+    const respuesta = await resend.emails.send({
       from: EMAIL_FROM,
       to: contacto,
       subject: `Tus boleto${cantidad > 1 ? "s" : ""} para ${evento?.nombre || "tu evento"}`,
@@ -564,8 +568,24 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
         },
       ],
     });
+    if (respuesta?.error) throw new Error(respuesta.error.message || JSON.stringify(respuesta.error));
   } catch (err) {
-    console.error("Error enviando boletos por correo:", err);
+    console.error("Error enviando boletos por correo a", contacto, err);
+    error = String(err?.message || err).slice(0, 300);
+  }
+
+  const ventaId = boletos[0].ventaId;
+  if (!ventaId) return;
+  try {
+    await conCandado(async () => {
+      const db = await leerDB();
+      const venta = db.ventas.find((v) => v.id === ventaId);
+      if (!venta) return;
+      venta.correo = { estado: error ? "fallo" : "enviado", a: contacto, en: new Date().toISOString(), ...(error ? { error } : {}) };
+      await escribirDB(db);
+    });
+  } catch (err) {
+    console.error("No se pudo guardar el resultado del correo de la venta", ventaId, err);
   }
 }
 
@@ -1334,7 +1354,44 @@ app.get("/api/boletos", requiereAdmin, seguro(async (req, res) => {
   const db = await leerDB();
   const { eventoId } = req.query;
   const lista = eventoId ? db.boletos.filter((b) => b.eventoId === eventoId) : db.boletos;
-  res.json(lista);
+  // Cada boleto lleva el resultado del correo de su venta (no se guarda en el boleto).
+  const correoDe = new Map(db.ventas.filter((v) => v.correo).map((v) => [v.id, v.correo]));
+  res.json(lista.map((b) => (correoDe.has(b.ventaId) ? { ...b, correo: correoDe.get(b.ventaId) } : b)));
+}));
+
+// -------- Admin: reenviar por correo los boletos de una venta --------
+// Por si el correo no llegó (falló el envío, o el cliente escribió mal su
+// correo). Se puede mandar a un correo corregido: en ese caso también se
+// actualiza el contacto de la venta y de sus boletos.
+app.post("/api/admin/reenviar-correo", requiereAdmin, seguro(async (req, res) => {
+  if (!resend) return res.status(400).json({ error: "El envío de correos no está configurado (falta RESEND_API_KEY)." });
+  const ventaId = String(req.body?.ventaId || "");
+  const nuevoCorreo = String(req.body?.correo || "").trim();
+  if (nuevoCorreo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nuevoCorreo)) {
+    return res.status(400).json({ error: "Ese correo no parece válido." });
+  }
+  let datos = null;
+  let falla = null;
+  await conCandado(async () => {
+    const db = await leerDB();
+    const venta = db.ventas.find((v) => v.id === ventaId);
+    if (!venta) { falla = { status: 404, error: "Venta no encontrada." }; return; }
+    const boletos = db.boletos.filter((b) => b.ventaId === venta.id);
+    if (!boletos.length) { falla = { status: 409, error: "Esta venta todavía no tiene boletos." }; return; }
+    if (nuevoCorreo && nuevoCorreo !== venta.contacto) {
+      venta.contacto = nuevoCorreo;
+      for (const b of boletos) b.contacto = nuevoCorreo;
+      await escribirDB(db);
+    }
+    if (!String(venta.contacto || "").includes("@")) { falla = { status: 400, error: "Esta venta no tiene correo. Escribe uno." }; return; }
+    datos = { evento: db.eventos.find((e) => e.id === venta.eventoId) || null, nombre: venta.nombre, contacto: venta.contacto, boletos };
+  });
+  if (falla) return res.status(falla.status).json({ error: falla.error });
+  await enviarBoletosPorEmail(datos);
+  const db = await leerDB();
+  const correo = db.ventas.find((v) => v.id === ventaId)?.correo || null;
+  if (correo?.estado !== "enviado") return res.status(502).json({ error: "No se pudo enviar: " + (correo?.error || "error desconocido"), correo });
+  res.json({ ok: true, correo });
 }));
 
 // -------- Puerta: validar folio (admin) --------
@@ -1429,6 +1486,7 @@ app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
     porMetodo,
     ...(mesasInfo ? { mesas: mesasInfo } : {}),
     ...(conflictos.length ? { conflictos } : {}),
+    correosFallidos: ventas.filter((v) => v.correo?.estado === "fallo").length,
     ...(porZona ? { porZona } : {}),
     pendientesDePago: ventas.filter((v) => v.estado === "pendiente").length,
   });
