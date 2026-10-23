@@ -207,6 +207,23 @@ async function respaldoDiario() {
 
 /* ---------------- Utilidades ---------------- */
 
+// Para meter texto (nombres, referencias) dentro del HTML de un correo.
+function escaparHtml(t) {
+  return String(t ?? "").replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Aviso por correo al organizador (a BACKUP_EMAIL) de algo que hay que
+// revisar a mano. Si el correo no está configurado, queda solo en el log.
+async function avisarPorCorreo(asunto, html) {
+  if (!resend || !BACKUP_EMAIL) return;
+  try {
+    const { error } = await resend.emails.send({ from: EMAIL_FROM, to: BACKUP_EMAIL, subject: asunto, html });
+    if (error) throw new Error(error.message || JSON.stringify(error));
+  } catch (err) {
+    console.error("No se pudo mandar el aviso por correo:", asunto, err);
+  }
+}
+
 const ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function folioNuevo(i) {
   let s = "";
@@ -942,7 +959,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
   await conCandado(async () => {
     const db = await leerDB();
     const venta = db.ventas.find((v) => v.id === ventaId);
-    if (!venta) return;
+    if (!venta) { resultado = { ventaNoEncontrada: true }; return; }
     if (venta.estado === "pagado") return; // idempotencia: ya se procesó este pago
 
     venta.estado = "pagado";
@@ -1028,39 +1045,60 @@ async function aplicarPagoAprobado(ventaId, pago) {
 }
 
 // -------- Webhook de Mercado Pago: única fuente de verdad del pago --------
+// Se le contesta "OK" a Mercado Pago solo DESPUÉS de guardar los boletos. Si
+// algo falla (Mercado Pago no responde, no se pudo guardar), se contesta con
+// error y Mercado Pago vuelve a mandar el aviso más tarde; antes se contestaba
+// "OK" de entrada y, si fallaba, el pago se quedaba sin boletos hasta que
+// alguien usara "Revisar con Mercado Pago". Repetir el aviso no duplica
+// boletos: aplicarPagoAprobado() no hace nada si la venta ya está pagada.
 app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
-  // Responder rápido evita reintentos innecesarios de Mercado Pago;
-  // el trabajo pesado va después de contestar.
+  const tipo = req.query.type || req.body?.type;
+  if (tipo !== "payment") return res.sendStatus(200);
+
+  if (MP_WEBHOOK_SECRET && !verificarFirma(req)) {
+    console.warn("Webhook con firma inválida, se ignora.");
+    return res.sendStatus(401);
+  }
+
+  const paymentId = req.query["data.id"] || req.body?.data?.id;
+  if (!paymentId) return res.sendStatus(200);
+
+  let resultado;
+  let pago;
+  try {
+    const paymentApi = new Payment(mpClient);
+    pago = await paymentApi.get({ id: paymentId });
+    if (pago.status !== "approved") return res.sendStatus(200);
+    resultado = await aplicarPagoAprobado(pago.external_reference, pago);
+  } catch (err) {
+    console.error("Error procesando webhook (Mercado Pago lo reintentará):", err);
+    return res.sendStatus(500);
+  }
   res.sendStatus(200);
 
-  try {
-    const tipo = req.query.type || req.body?.type;
-    if (tipo !== "payment") return;
-
-    if (MP_WEBHOOK_SECRET && !verificarFirma(req)) {
-      console.warn("Webhook con firma inválida, se ignora.");
-      return;
+  // Lo que sigue va después de contestar, para no hacer esperar a Mercado Pago.
+  if (resultado?.ventaNoEncontrada) {
+    // Pago aprobado que no corresponde a ninguna venta: no se emitieron
+    // boletos. Sin external_reference no es de este sitio (por ejemplo, un
+    // cobro hecho con la misma cuenta por otro medio); con uno, hay que revisarlo.
+    console.error("Pago aprobado sin venta:", pago.id, pago.external_reference);
+    if (pago.external_reference) {
+      avisarPorCorreo(
+        "⚠️ massticket: pago aprobado sin venta",
+        `<p>Mercado Pago aprobó el pago <strong>${escaparHtml(pago.id)}</strong>
+          (${escaparHtml(pago.transaction_amount)} ${escaparHtml(pago.currency_id)}) con la referencia
+          <code>${escaparHtml(pago.external_reference)}</code>, pero no existe ninguna venta con esa referencia,
+          así que <strong>no se emitieron boletos</strong>.</p>
+          <p>Búscalo en Mercado Pago para saber quién pagó y, si corresponde, hazle una venta manual o devuélvele el dinero.</p>`
+      );
     }
-
-    const paymentId = req.query["data.id"] || req.body?.data?.id;
-    if (!paymentId) return;
-
-    const paymentApi = new Payment(mpClient);
-    const pago = await paymentApi.get({ id: paymentId });
-
-    if (pago.status !== "approved") return;
-
-    const resultado = await aplicarPagoAprobado(pago.external_reference, pago);
-    if (resultado?.evento && resultado.boletos?.length) {
-      await enviarBoletosPorEmail({
-        evento: resultado.evento,
-        nombre: resultado.nombre,
-        contacto: resultado.contacto,
-        boletos: resultado.boletos,
-      });
-    }
-  } catch (err) {
-    console.error("Error procesando webhook:", err);
+  } else if (resultado?.evento && resultado.boletos?.length) {
+    enviarBoletosPorEmail({
+      evento: resultado.evento,
+      nombre: resultado.nombre,
+      contacto: resultado.contacto,
+      boletos: resultado.boletos,
+    });
   }
 }));
 
