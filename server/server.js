@@ -151,6 +151,29 @@ async function textoDB() {
   });
 }
 
+// Manda por correo a BACKUP_EMAIL una copia comprimida de db.json. Lanza un
+// error si el envío falla.
+async function enviarRespaldoPorCorreo(texto, { titulo, archivo, descripcion }) {
+  if (!resend || !BACKUP_EMAIL) return;
+  const comprimido = gzipSync(texto);
+  const pesoMB = (comprimido.length / 1024 / 1024).toFixed(1);
+  const correo = comprimido.length <= MAX_ADJUNTO_BYTES
+    ? {
+        subject: `Respaldo massticket ${titulo}`,
+        html: `<p>${descripcion} de <code>db.json</code> (${pesoMB} MB comprimido).</p>
+          <p>Contiene datos personales de clientes: guárdalo en un lugar seguro.</p>
+          <p>Para abrirlo, descomprime el archivo <code>.gz</code>; adentro está el <code>db.json</code>.</p>`,
+        attachments: [{ filename: `massticket-respaldo-${archivo}.json.gz`, content: comprimido.toString("base64") }],
+      }
+    : {
+        subject: `⚠️ Respaldo massticket ${titulo}: demasiado grande para el correo`,
+        html: `<p>El respaldo pesa ${pesoMB} MB comprimido y no cabe en un correo.</p>
+          <p>Se guardó en el servidor y puedes bajarlo con el botón "Descargar respaldo" del Panel.</p>`,
+      };
+  const { error } = await resend.emails.send({ from: EMAIL_FROM, to: BACKUP_EMAIL, ...correo });
+  if (error) throw new Error(error.message || JSON.stringify(error));
+}
+
 async function respaldoDiario() {
   const hoy = hoyMX();
   if (dbDañada) return; // ya se avisó; no se respalda un archivo dañado
@@ -178,30 +201,55 @@ async function respaldoDiario() {
     }
 
     // Copia por correo, comprimida.
-    if (resend && BACKUP_EMAIL) {
-      const comprimido = gzipSync(texto);
-      const pesoMB = (comprimido.length / 1024 / 1024).toFixed(1);
-      const correo = comprimido.length <= MAX_ADJUNTO_BYTES
-        ? {
-            subject: `Respaldo massticket ${hoy}`,
-            html: `<p>Respaldo diario de <code>db.json</code> (${pesoMB} MB comprimido).</p>
-              <p>Contiene datos personales de clientes: guárdalo en un lugar seguro.</p>
-              <p>Para abrirlo, descomprime el archivo <code>.gz</code>; adentro está el <code>db.json</code>.</p>`,
-            attachments: [{ filename: `massticket-respaldo-${hoy}.json.gz`, content: comprimido.toString("base64") }],
-          }
-        : {
-            subject: `⚠️ Respaldo massticket ${hoy}: demasiado grande para el correo`,
-            html: `<p>El respaldo pesa ${pesoMB} MB comprimido y no cabe en un correo.</p>
-              <p>Se guardó en el servidor y puedes bajarlo con el botón "Descargar respaldo" del Panel.</p>`,
-          };
-      const { error } = await resend.emails.send({ from: EMAIL_FROM, to: BACKUP_EMAIL, ...correo });
-      if (error) throw new Error(error.message || JSON.stringify(error));
-    }
+    await enviarRespaldoPorCorreo(texto, { titulo: hoy, archivo: hoy, descripcion: "Respaldo diario" });
 
     await fs.writeFile(ULTIMO_RESPALDO_PATH, hoy);
     console.log(`Respaldo del ${hoy} listo${resend && BACKUP_EMAIL ? " y enviado a " + BACKUP_EMAIL : " (solo copia local)"}.`);
   } catch (err) {
     console.error("Error haciendo el respaldo diario:", err);
+  }
+}
+
+// Respaldos extra en días de evento: el respaldo diario sale a las 6:00 am,
+// así que sin esto, si el volumen se perdiera en la noche del evento, se
+// perderían las ventas del día; las de Mercado Pago se recuperan con
+// "Revisar con Mercado Pago", pero las ventas manuales (efectivo, cortesías)
+// no. Por eso, los días que hay un evento, cada HORAS_ENTRE_RESPALDOS_EXTRA
+// horas (y solo si db.json cambió) se guarda otra copia y se manda por correo.
+const HORAS_ENTRE_RESPALDOS_EXTRA = 3;
+const MAX_RESPALDOS_EXTRA_LOCALES = 16;
+const ULTIMO_RESPALDO_EXTRA_PATH = path.join(DATA_DIR, "ultimo-respaldo-extra.txt");
+
+async function respaldoDiaDeEvento() {
+  if (dbDañada) return;
+  try {
+    const ahora = Date.now();
+    const ultimo = Date.parse((await fs.readFile(ULTIMO_RESPALDO_EXTRA_PATH, "utf8").catch(() => "")).trim()) || 0;
+    if (ahora - ultimo < HORAS_ENTRE_RESPALDOS_EXTRA * 3600 * 1000) return;
+    const info = await fs.stat(DB_PATH).catch(() => null);
+    if (!info || info.mtimeMs <= ultimo) return; // no ha cambiado nada desde el último
+    const hoy = hoyMX();
+    const db = await leerDB();
+    if (!db.eventos.some((e) => e.fecha === hoy)) return;
+
+    const texto = await textoDB();
+    // Fecha y hora de México (UTC-6, sin horario de verano) para el nombre: "2026-10-23-2315".
+    const sello = new Date(ahora - 6 * 3600 * 1000).toISOString().slice(0, 16).replace("T", "-").replace(":", "");
+    await fs.mkdir(RESPALDOS_DIR, { recursive: true });
+    await fs.writeFile(path.join(RESPALDOS_DIR, `db-${sello}.json`), texto);
+    const locales = (await fs.readdir(RESPALDOS_DIR)).filter((f) => /^db-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(f)).sort();
+    for (const viejo of locales.slice(0, Math.max(0, locales.length - MAX_RESPALDOS_EXTRA_LOCALES))) {
+      await fs.unlink(path.join(RESPALDOS_DIR, viejo));
+    }
+    // Se anota antes del correo: si el correo falla, se reintenta en el
+    // siguiente turno (3 horas) y no cada 15 minutos, para no gastar la cuota.
+    await fs.writeFile(ULTIMO_RESPALDO_EXTRA_PATH, new Date(ahora).toISOString());
+
+    const hora = `${sello.slice(11, 13)}:${sello.slice(13, 15)}`;
+    await enviarRespaldoPorCorreo(texto, { titulo: `${hoy} ${hora} (día de evento)`, archivo: sello, descripcion: "Respaldo extra del día de evento" });
+    console.log(`Respaldo extra ${sello} listo${resend && BACKUP_EMAIL ? " y enviado a " + BACKUP_EMAIL : " (solo copia local)"}.`);
+  } catch (err) {
+    console.error("Error haciendo el respaldo extra del día de evento:", err);
   }
 }
 
@@ -1531,5 +1579,7 @@ app.listen(PORT, () => {
   console.log(`URL pública configurada: ${PUBLIC_URL}`);
 });
 
-setTimeout(respaldoDiario, 60 * 1000);
-setInterval(respaldoDiario, 15 * 60 * 1000);
+// El respaldo extra va después del diario para no mandar dos correos juntos a las 6:00 am.
+const respaldos = async () => { await respaldoDiario(); await respaldoDiaDeEvento(); };
+setTimeout(respaldos, 60 * 1000);
+setInterval(respaldos, 15 * 60 * 1000);
