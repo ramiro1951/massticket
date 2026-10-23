@@ -37,7 +37,7 @@ const {
 } = process.env;
 
 if (!MP_ACCESS_TOKEN) console.warn("⚠️  Falta MP_ACCESS_TOKEN en las variables de entorno.");
-if (!MP_WEBHOOK_SECRET) console.warn("⚠️  Falta MP_WEBHOOK_SECRET: el webhook no podrá verificar firmas.");
+if (!MP_WEBHOOK_SECRET) console.warn("⚠️  Falta MP_WEBHOOK_SECRET: el webhook rechazará todos los avisos de pago.");
 if (!ADMIN_KEY) console.warn("⚠️  Falta ADMIN_KEY: el panel de organizador quedaría sin contraseña.");
 if (!RESEND_API_KEY) console.warn("⚠️  Falta RESEND_API_KEY: los boletos no se enviarán por correo automáticamente.");
 if (!BACKUP_EMAIL) console.warn("⚠️  Falta BACKUP_EMAIL: el respaldo diario solo se guardará en el servidor, no por correo.");
@@ -323,6 +323,11 @@ function hoyMX(ahora = Date.now()) {
 //                     (1 para zonas normales; 2 o 4 para palcos),
 //   cupo            = lugares (personas) disponibles en total en esa zona.
 // Cada boleto individual vale precio / personas.
+// El cartel llega del panel como "data:image/...;base64,...". Cualquier otra
+// cosa se rechaza, porque se pone tal cual en <img src> de las páginas.
+function imagenValida(imagen) {
+  return imagen === "" || /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(imagen);
+}
 function zonasDe(evento) {
   return Array.isArray(evento?.zonas) ? evento.zonas : [];
 }
@@ -511,7 +516,7 @@ function requiereAdmin(req, res, next) {
 function verificarFirma(req) {
   const xSignature = req.get("x-signature");
   const xRequestId = req.get("x-request-id");
-  const dataId = (req.query["data.id"] || "").toLowerCase();
+  const dataId = String(req.query["data.id"] || "").toLowerCase();
   if (!xSignature || !xRequestId || !dataId || !MP_WEBHOOK_SECRET) return false;
 
   const partes = Object.fromEntries(
@@ -622,7 +627,7 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
     const cantidad = boletos.length;
     const mesasTexto = [...new Set(boletos.filter((b) => b.mesa).map((b) => b.mesa))];
     const lineaMesas = mesasTexto.length
-      ? `<p><strong>Mesa${mesasTexto.length > 1 ? "s" : ""}: ${mesasTexto.join(", ")}</strong></p>`
+      ? `<p><strong>Mesa${mesasTexto.length > 1 ? "s" : ""}: ${escaparHtml(mesasTexto.join(", "))}</strong></p>`
       : "";
     // Resend no lanza un error cuando falla el envío: lo devuelve en "error".
     const respuesta = await resend.emails.send({
@@ -630,10 +635,10 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
       to: contacto,
       subject: `Tus boleto${cantidad > 1 ? "s" : ""} para ${evento?.nombre || "tu evento"}`,
       html: `
-        <p>Hola ${nombre || ""},</p>
+        <p>Hola ${escaparHtml(nombre)},</p>
         <p>Aquí tienes tu${cantidad > 1 ? "s" : ""} boleto${cantidad > 1 ? "s" : ""} para
-        <strong>${evento?.nombre || "el evento"}</strong>
-        (${fechaLegibleServidor(evento?.fecha)}, ${evento?.lugar || "lugar por confirmar"}).</p>
+        <strong>${escaparHtml(evento?.nombre || "el evento")}</strong>
+        (${escaparHtml(fechaLegibleServidor(evento?.fecha))}, ${escaparHtml(evento?.lugar || "lugar por confirmar")}).</p>
         ${lineaMesas}
         <p>Va adjunto en PDF con tu código QR: solo muéstralo (impreso o desde tu teléfono) en la entrada.</p>
         <p style="color:#888;font-size:12px;margin-top:24px;">
@@ -748,6 +753,7 @@ app.get("/api/mapas", seguro(async (req, res) => {
 // -------- Crear evento (admin) --------
 app.post("/api/eventos", requiereAdmin, seguro(async (req, res) => {
   const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
+  if (typeof imagen === "string" && !imagenValida(imagen)) return res.status(400).json({ error: "La imagen del cartel no es válida." });
   await conCandado(async () => {
     const db = await leerDB();
     const mapa = mapaId ? cargarMapa(mapaId) : null;
@@ -782,6 +788,7 @@ app.post("/api/eventos", requiereAdmin, seguro(async (req, res) => {
 // -------- Editar evento (admin) --------
 app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
   const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
+  if (typeof imagen === "string" && !imagenValida(imagen)) return res.status(400).json({ error: "La imagen del cartel no es válida." });
   await conCandado(async () => {
     const db = await leerDB();
     const evento = db.eventos.find((e) => e.id === req.params.id);
@@ -1157,8 +1164,11 @@ app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
   const tipo = req.query.type || req.body?.type;
   if (tipo !== "payment") return res.sendStatus(200);
 
-  if (MP_WEBHOOK_SECRET && !verificarFirma(req)) {
-    console.warn("Webhook con firma inválida, se ignora.");
+  // Sin MP_WEBHOOK_SECRET no se puede saber si el aviso es de Mercado Pago,
+  // así que se rechaza (antes se aceptaba). Los pagos se pueden confirmar
+  // igual con "Revisar con Mercado Pago" mientras se configura.
+  if (!verificarFirma(req)) {
+    console.warn(MP_WEBHOOK_SECRET ? "Webhook con firma inválida, se ignora." : "Webhook rechazado: falta MP_WEBHOOK_SECRET.");
     return res.sendStatus(401);
   }
 

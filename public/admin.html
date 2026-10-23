@@ -328,7 +328,7 @@ function pintarListaEventosAdmin(){
   }
   cont.innerHTML = lista.map(e=>`
     <div class="fila-evento">
-      ${e.imagen ? `<img src="${e.imagen}" alt="">` : `<img alt="">`}
+      ${e.imagen ? `<img src="${escapar(e.imagen)}" alt="">` : `<img alt="">`}
       <div>
         <div class="nombre">${escapar(e.nombre)}${e.oculto ? ' <span style="font-size:12px;color:var(--ambar);border:1px solid var(--ambar);border-radius:6px;padding:1px 6px;margin-left:6px">Oculto</span>' : ''}</div>
         <div class="detalle">${escapar(fechaLegible(e.fecha))} · ${escapar(e.lugar||"")} · ${e.zonas&&e.zonas.length ? "desde "+pesos(e.precio) : pesos(e.precio)} · ${e.vendidos}/${e.cupo} vendidos</div>

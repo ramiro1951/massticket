@@ -63,7 +63,7 @@ async function cargar(){
     cont.innerHTML = eventos.map(e=>{
       const agotado = e.vendidos >= e.cupo;
       return `<a class="tarjeta" href="/comprar.html?evento=${encodeURIComponent(e.id)}">
-        ${e.imagen ? `<img class="foto" src="${e.imagen}" alt="">` : `<div class="foto sin-imagen">Sin imagen</div>`}
+        ${e.imagen ? `<img class="foto" src="${escapar(e.imagen)}" alt="">` : `<div class="foto sin-imagen">Sin imagen</div>`}
         <div class="info">
           <div class="fecha">${fechaCorta(e.fecha)}</div>
           <h3>${escapar(e.nombre)}</h3>
