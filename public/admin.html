@@ -255,12 +255,14 @@ async function api(ruta, opciones={}){
     headers: {"Content-Type":"application/json", "x-admin-key": clave, ...(opciones.headers||{})}
   });
   if(r.status === 401) throw new Error("no-autorizado");
+  if(r.status === 429) throw new Error("demasiados-intentos");
   const texto = await r.text();
   return texto ? JSON.parse(texto) : null;
 }
 
 async function intentarEntrar(){
-  clave = $("#clave").value;
+  // Al recargar la página el campo está vacío: se usa la clave ya guardada.
+  clave = $("#clave").value || clave;
   try{
     await api("/api/boletos");
     sessionStorage.setItem("massticket-admin-key", clave);
@@ -268,7 +270,9 @@ async function intentarEntrar(){
     $("#app").style.display="block";
     iniciarApp();
   }catch(e){
-    $("#clave-error").textContent = "Clave incorrecta. (" + (e && e.message ? e.message : "error desconocido") + ")";
+    $("#clave-error").textContent = e && e.message === "demasiados-intentos"
+      ? "Demasiados intentos con clave incorrecta. Espera 15 minutos e intenta de nuevo."
+      : "Clave incorrecta. (" + (e && e.message ? e.message : "error desconocido") + ")";
     $("#clave-error").style.display="block";
   }
 }
@@ -595,6 +599,7 @@ async function validar(codigo){
   try{
     r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio, eventoId: $("#sel-evento-puerta").value})});
   }catch(e){
+    if(e && e.message === "demasiados-intentos"){ mostrarResultado("malo","No se pudo validar","El servidor bloqueó esta conexión por demasiados intentos con clave incorrecta. Espera 15 minutos. NO se registró la entrada de "+folio+"."); return; }
     mostrarResultado("malo","No se pudo validar","No hay conexión con el servidor. NO se registró la entrada de "+folio+". Intenta de nuevo antes de dejarlo/a pasar.");
     return;
   }

@@ -467,9 +467,40 @@ function conOcupacion(db, e) {
   return salida;
 }
 
+// Compara la clave de organizador sin que el tiempo de respuesta delate
+// cuántos caracteres coinciden (se comparan los hash, que miden lo mismo).
+function claveCorrecta(clave) {
+  if (!ADMIN_KEY || typeof clave !== "string") return false;
+  const a = crypto.createHash("sha256").update(clave).digest();
+  const b = crypto.createHash("sha256").update(ADMIN_KEY).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+// Para que nadie pueda probar claves sin fin: después de MAX_FALLOS_CLAVE
+// intentos con clave incorrecta desde la misma IP, esa IP queda bloqueada
+// hasta que pasen VENTANA_FALLOS_CLAVE_MS desde el primer fallo.
+const MAX_FALLOS_CLAVE = 20;
+const VENTANA_FALLOS_CLAVE_MS = 15 * 60 * 1000;
+const fallosClave = new Map(); // ip -> { n, desde }
 function requiereAdmin(req, res, next) {
+  const ahora = Date.now();
+  const ip = req.ip;
+  let f = fallosClave.get(ip);
+  if (f && ahora - f.desde > VENTANA_FALLOS_CLAVE_MS) { fallosClave.delete(ip); f = null; }
+  if (f && f.n >= MAX_FALLOS_CLAVE) {
+    return res.status(429).json({ error: "Demasiados intentos con clave incorrecta. Espera 15 minutos e intenta de nuevo." });
+  }
   const clave = req.get("x-admin-key");
-  if (!ADMIN_KEY || clave !== ADMIN_KEY) {
+  if (!claveCorrecta(clave)) {
+    // Una clave vacía no cuenta como intento: no sirve para adivinar nada.
+    if (!clave) return res.status(401).json({ error: "No autorizado" });
+    if (fallosClave.size > 10000) {
+      for (const [k, v] of fallosClave) if (ahora - v.desde > VENTANA_FALLOS_CLAVE_MS) fallosClave.delete(k);
+    }
+    if (!f) { f = { n: 0, desde: ahora }; fallosClave.set(ip, f); }
+    f.n++;
+    if (f.n === 1) console.warn(`Clave de organizador incorrecta desde ${ip}.`);
+    if (f.n === MAX_FALLOS_CLAVE) console.warn(`Clave de organizador incorrecta ${MAX_FALLOS_CLAVE} veces desde ${ip}: se bloquea esa IP 15 minutos.`);
     return res.status(401).json({ error: "No autorizado" });
   }
   next();
@@ -646,6 +677,9 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
 const seguro = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 const app = express();
+// Railway pasa las peticiones por su proxy: con esto, req.ip es la IP real
+// del visitante (la que agrega el proxy) y no la del proxy.
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "12mb" })); // 12mb: alcanza para el cartel del evento en base64
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -671,7 +705,7 @@ app.get("/api/eventos", seguro(async (req, res) => {
   const hoy = hoyMX(); // "AAAA-MM-DD"
   // Con ?todos=1 se ven también los eventos pasados y los ocultos, pero solo
   // si la petición trae la clave de organizador (el panel la manda siempre).
-  const esAdmin = !!ADMIN_KEY && req.get("x-admin-key") === ADMIN_KEY;
+  const esAdmin = claveCorrecta(req.get("x-admin-key"));
   const mostrarTodos = req.query.todos === "1" && esAdmin;
   const lista = db.eventos
     .filter((e) => mostrarTodos || (!e.oculto && (!e.fecha || e.fecha >= hoy)))
