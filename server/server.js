@@ -433,8 +433,18 @@ function estadoMesas(db, evento) {
   }
   return estado;
 }
+// Tipos de pago de Mercado Pago que NO se ofrecen: los que se aprueban horas
+// o días después de elegirlos (efectivo en tienda como OXXO, pago en banco y
+// transferencia SPEI). El lugar solo se aparta VENTANA_RESERVA_MS, así que un
+// pago así podía llegar cuando el lugar ya se había vendido a otra persona.
+// Quedan tarjetas de crédito/débito y saldo de Mercado Pago.
+const TIPOS_PAGO_EXCLUIDOS = ["ticket", "atm", "bank_transfer"];
+function sinPagosDiferidos() {
+  return { payment_methods: { excluded_payment_types: TIPOS_PAGO_EXCLUIDOS.map((id) => ({ id })) } };
+}
+
 // Hora de vencimiento del link de pago de Mercado Pago (hora de México),
-// para que nadie pague una mesa después de que se liberó su apartado.
+// para que nadie pague un lugar después de que se liberó su apartado.
 function expiracionMP(minutos) {
   const fmt = (ms) => new Date(ms - 6 * 3600 * 1000).toISOString().replace("Z", "-06:00");
   const ahora = Date.now();
@@ -901,7 +911,6 @@ app.post("/api/comprar", seguro(async (req, res) => {
     // para que dos compras al mismo tiempo no vendan el mismo lugar dos veces.
     let falla = null;
     let evento = null;
-    let esMesas = false;
     const items = [];
     await conCandado(async () => {
       const db = await leerDB();
@@ -945,7 +954,6 @@ app.post("/api/comprar", seguro(async (req, res) => {
             currency_id: "MXN",
           });
         }
-        esMesas = true;
       } else if (zonas.length) {
         lineas = [];
         for (const p of pedidoZonas) {
@@ -1017,19 +1025,30 @@ app.post("/api/comprar", seguro(async (req, res) => {
       notification_url: `${PUBLIC_URL}/api/webhook/mercadopago`,
       statement_descriptor: "MASSTICKET",
     };
+    // El link de pago vence antes de que se libere el apartado (VENTANA_RESERVA_MS)
+    // y no ofrece pagos que se aprueban horas o días después (OXXO, SPEI):
+    // así nadie paga un lugar que ya se liberó y se le vendió a otra persona.
+    // Si Mercado Pago rechazara alguna de esas opciones, se reintenta sin
+    // ella para no dejar de vender, y queda el aviso en el log.
+    const intentos = [
+      { ...cuerpoPreferencia, ...sinPagosDiferidos(), ...expiracionMP(19) },
+      { ...cuerpoPreferencia, ...sinPagosDiferidos() },
+      cuerpoPreferencia,
+    ];
     let resultado;
-    if (esMesas) {
-      // Con mesas, el link de pago vence antes de que se libere el apartado,
-      // para que nadie pague una mesa que ya se le dio a otra persona. Si
-      // Mercado Pago rechazara esa opción, se reintenta sin vencimiento.
+    for (let i = 0; i < intentos.length; i++) {
       try {
-        resultado = await preference.create({ body: { ...cuerpoPreferencia, ...expiracionMP(19) } });
+        resultado = await preference.create({ body: intentos[i] });
+        break;
       } catch (e) {
-        console.warn("Mercado Pago no aceptó el vencimiento; se reintenta sin él:", e?.message || e);
-        resultado = await preference.create({ body: cuerpoPreferencia });
+        if (i === intentos.length - 1) throw e;
+        console.warn(
+          i === 0
+            ? "Mercado Pago no aceptó el vencimiento del link; se reintenta sin él:"
+            : "⚠️ Mercado Pago no aceptó excluir OXXO/SPEI; se reintenta sin excluirlos:",
+          e?.message || e
+        );
       }
-    } else {
-      resultado = await preference.create({ body: cuerpoPreferencia });
     }
 
     await conCandado(async () => {
