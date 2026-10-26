@@ -894,9 +894,52 @@ app.delete("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
   });
 }));
 
+// Cada compra iniciada aparta lugares 20 minutos aunque no se pague; sin
+// límite, un programa podía apartar todo el cupo una y otra vez y hacer que
+// el evento pareciera agotado. Se permiten MAX_COMPRAS_POR_IP compras
+// iniciadas por IP cada VENTANA_COMPRAS_MS: alcanza para quien reintenta
+// varias veces o para varias personas que comparten la red del celular.
+const MAX_COMPRAS_POR_IP = 15;
+const VENTANA_COMPRAS_MS = 15 * 60 * 1000;
+const comprasPorIp = new Map(); // ip -> { n, desde }
+function limitarCompras(req, res, next) {
+  const ahora = Date.now();
+  const ip = ipVisitante(req);
+  if (comprasPorIp.size > 10000) {
+    for (const [k, v] of comprasPorIp) if (ahora - v.desde > VENTANA_COMPRAS_MS) comprasPorIp.delete(k);
+  }
+  let c = comprasPorIp.get(ip);
+  if (!c || ahora - c.desde > VENTANA_COMPRAS_MS) { c = { n: 0, desde: ahora }; comprasPorIp.set(ip, c); }
+  if (c.n >= MAX_COMPRAS_POR_IP) {
+    if (c.n === MAX_COMPRAS_POR_IP) console.warn(`Demasiadas compras iniciadas desde ${ip}: se pausan ${VENTANA_COMPRAS_MS / 60000} minutos.`);
+    c.n++;
+    return res.status(429).json({ error: "Hiciste muchos intentos de compra seguidos. Espera unos minutos e intenta de nuevo." });
+  }
+  c.n++;
+  next();
+}
+
+// Además, una misma IP puede tener apartados a la vez como máximo
+// MAX_LUGARES_APARTADOS_POR_IP lugares (durante VENTANA_RESERVA_MS). Su primera
+// compra siempre pasa, aunque sea más grande (por ejemplo, varias mesas),
+// así que nadie se queda sin poder comprar; lo que se evita es que una sola
+// persona aparte el lugar completo con muchas compras seguidas.
+const MAX_LUGARES_APARTADOS_POR_IP = 40;
+const apartadosPorIp = new Map(); // ip -> [{ ventaId, lugares, hasta }]
+function lugaresApartadosDe(ip, ahora = Date.now()) {
+  if (apartadosPorIp.size > 10000) {
+    for (const [k, v] of apartadosPorIp) if (!v.some((a) => a.hasta > ahora)) apartadosPorIp.delete(k);
+  }
+  const vigentes = (apartadosPorIp.get(ip) || []).filter((a) => a.hasta > ahora);
+  if (vigentes.length) apartadosPorIp.set(ip, vigentes);
+  else apartadosPorIp.delete(ip);
+  return vigentes;
+}
+
 // -------- Comprar (público): crea la preferencia y devuelve el link de pago --------
-app.post("/api/comprar", seguro(async (req, res) => {
+app.post("/api/comprar", limitarCompras, seguro(async (req, res) => {
   const ventaId = uuid();
+  const ip = ipVisitante(req);
   let ventaCreada = false;
   try {
     const eventoId = String(req.body?.eventoId || "");
@@ -994,6 +1037,14 @@ app.post("/api/comprar", seguro(async (req, res) => {
         });
       }
 
+      const apartados = lugaresApartadosDe(ip);
+      const yaApartados = apartados.reduce((t, a) => t + a.lugares, 0);
+      if (yaApartados > 0 && yaApartados + totalBoletos > MAX_LUGARES_APARTADOS_POR_IP) {
+        console.warn(`Compra rechazada: ${ip} ya tiene ${yaApartados} lugares apartados.`);
+        falla = { status: 429, error: "Ya tienes varias compras sin terminar. Termina de pagar esas o espera 20 minutos e intenta de nuevo. Si quieres comprar muchos lugares, escríbenos por WhatsApp." };
+        return;
+      }
+
       db.ventas.push({
         id: ventaId,
         eventoId,
@@ -1008,6 +1059,8 @@ app.post("/api/comprar", seguro(async (req, res) => {
       });
       await escribirDB(db);
       ventaCreada = true;
+      if (!apartadosPorIp.has(ip)) apartadosPorIp.set(ip, apartados);
+      apartados.push({ ventaId, lugares: totalBoletos, hasta: Date.now() + VENTANA_RESERVA_MS });
     });
     if (falla) return res.status(falla.status).json({ error: falla.error });
 
@@ -1062,6 +1115,8 @@ app.post("/api/comprar", seguro(async (req, res) => {
     console.error("Error creando preferencia:", err);
     // Si ya se había apartado el lugar pero Mercado Pago falló, se libera.
     if (ventaCreada) {
+      const apartados = apartadosPorIp.get(ip);
+      if (apartados) apartadosPorIp.set(ip, apartados.filter((a) => a.ventaId !== ventaId));
       try {
         await conCandado(async () => {
           const db3 = await leerDB();
