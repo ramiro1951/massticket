@@ -25,7 +25,9 @@ messages are in Spanish; keep it that way.
 - The webhook (`/api/webhook/mercadopago`) is the only source of truth for payment. Never
   issue tickets from the browser return URL. `aplicarPagoAprobado()` must stay idempotent.
 - Capacity = issued tickets + `pendiente` sales younger than `VENTANA_RESERVA_MS` (20 min).
-  Table-map payment links expire at 19 min (`expiracionMP`).
+  All payment links expire at 19 min (`expiracionMP`) and exclude delayed payment types
+  (OXXO/cash, bank, SPEI: `TIPOS_PAGO_EXCLUIDOS`), so a payment can't arrive after its
+  hold was released.
 - Pricing modes per event: single price, `zonas` (price per purchase / `personas`), or
   `mapaId` (zones derived from the map's sections, price per person).
 - "Today" uses `hoyMX()` (Mexico City time, rolls over at 6:00 am).
