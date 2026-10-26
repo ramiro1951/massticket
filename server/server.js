@@ -1298,6 +1298,17 @@ app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
   }
 }));
 
+// Las compras pendientes de más de DIAS_PENDIENTES_VIGENTES días son compras
+// abandonadas (con tarjeta el pago se aprueba en minutos y ya no se ofrece
+// OXXO/SPEI): no se vuelven a revisar ni se cuentan en el Panel. Se quedan
+// guardadas como estaban, y si de verdad llegara su pago, el webhook lo aplica igual.
+const DIAS_PENDIENTES_VIGENTES = 7;
+function pendienteVigente(v, ahora = Date.now()) {
+  if (v.estado !== "pendiente") return false;
+  const creado = v.creado ? new Date(v.creado).getTime() : 0;
+  return ahora - creado < DIAS_PENDIENTES_VIGENTES * 24 * 3600 * 1000;
+}
+
 // -------- Admin: revisar con Mercado Pago las ventas "pendientes" --------
 // Por si el aviso automático (webhook) nunca llegó -por ejemplo si el sitio
 // estaba caído justo en ese momento-, esto le pregunta a Mercado Pago,
@@ -1307,7 +1318,7 @@ app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
 app.post("/api/admin/reconciliar-pagos", requiereAdmin, seguro(async (req, res) => {
   try {
     const db = await leerDB();
-    const pendientes = db.ventas.filter((v) => v.estado === "pendiente");
+    const pendientes = db.ventas.filter((v) => pendienteVigente(v));
     const paymentApi = new Payment(mpClient);
     const confirmadas = [];
     const sinCambio = [];
@@ -1664,7 +1675,7 @@ app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
     ...(conflictos.length ? { conflictos } : {}),
     correosFallidos: ventas.filter((v) => v.correo?.estado === "fallo").length,
     ...(porZona ? { porZona } : {}),
-    pendientesDePago: ventas.filter((v) => v.estado === "pendiente").length,
+    pendientesDePago: ventas.filter((v) => pendienteVigente(v)).length,
   });
 }));
 
