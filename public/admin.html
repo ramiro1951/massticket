@@ -8,9 +8,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/estilo.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/vendor/qrcode.min.js"></script>
 <script src="/mapa-mesas.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="/vendor/html5-qrcode.min.js"></script>
 <style>
   .selector-evento{
     display:flex;gap:10px;align-items:center;flex-wrap:wrap;
@@ -122,7 +122,7 @@
       <label for="sel-evento-puerta">Evento:</label>
       <select id="sel-evento-puerta"></select>
     </div>
-    <p class="ayuda">Escanea el QR del boleto o teclea el folio. Los folios son únicos en todo el sitio, así que aunque valides aquí, se valida en el evento correcto automáticamente.</p>
+    <p class="ayuda">Elige arriba el evento que se está realizando, luego escanea el QR del boleto o teclea el folio. Solo entran boletos de ese evento: si alguien trae un boleto de otro evento, aquí te avisa y no se registra la entrada.</p>
     <div class="resultado" id="resultado"><h3></h3><p></p></div>
     <div class="panel-caja">
       <div class="campo"><label for="p-folio">Folio del boleto</label><input id="p-folio" placeholder="MT-3F9K-0142" autocomplete="off"></div>
@@ -255,12 +255,14 @@ async function api(ruta, opciones={}){
     headers: {"Content-Type":"application/json", "x-admin-key": clave, ...(opciones.headers||{})}
   });
   if(r.status === 401) throw new Error("no-autorizado");
+  if(r.status === 429) throw new Error("demasiados-intentos");
   const texto = await r.text();
   return texto ? JSON.parse(texto) : null;
 }
 
 async function intentarEntrar(){
-  clave = $("#clave").value;
+  // Al recargar la página el campo está vacío: se usa la clave ya guardada.
+  clave = $("#clave").value || clave;
   try{
     await api("/api/boletos");
     sessionStorage.setItem("massticket-admin-key", clave);
@@ -268,7 +270,9 @@ async function intentarEntrar(){
     $("#app").style.display="block";
     iniciarApp();
   }catch(e){
-    $("#clave-error").textContent = "Clave incorrecta. (" + (e && e.message ? e.message : "error desconocido") + ")";
+    $("#clave-error").textContent = e && e.message === "demasiados-intentos"
+      ? "Demasiados intentos con clave incorrecta. Espera 15 minutos e intenta de nuevo."
+      : "Clave incorrecta. (" + (e && e.message ? e.message : "error desconocido") + ")";
     $("#clave-error").style.display="block";
   }
 }
@@ -324,7 +328,7 @@ function pintarListaEventosAdmin(){
   }
   cont.innerHTML = lista.map(e=>`
     <div class="fila-evento">
-      ${e.imagen ? `<img src="${e.imagen}" alt="">` : `<img alt="">`}
+      ${e.imagen ? `<img src="${escapar(e.imagen)}" alt="">` : `<img alt="">`}
       <div>
         <div class="nombre">${escapar(e.nombre)}${e.oculto ? ' <span style="font-size:12px;color:var(--ambar);border:1px solid var(--ambar);border-radius:6px;padding:1px 6px;margin-left:6px">Oculto</span>' : ''}</div>
         <div class="detalle">${escapar(fechaLegible(e.fecha))} · ${escapar(e.lugar||"")} · ${e.zonas&&e.zonas.length ? "desde "+pesos(e.precio) : pesos(e.precio)} · ${e.vendidos}/${e.cupo} vendidos</div>
@@ -593,8 +597,9 @@ async function validar(codigo){
   if(!folio) return;
   let r;
   try{
-    r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio})});
+    r = await api("/api/validar", {method:"POST", body: JSON.stringify({folio, eventoId: $("#sel-evento-puerta").value})});
   }catch(e){
+    if(e && e.message === "demasiados-intentos"){ mostrarResultado("malo","No se pudo validar","El servidor bloqueó esta conexión por demasiados intentos con clave incorrecta. Espera 15 minutos. NO se registró la entrada de "+folio+"."); return; }
     mostrarResultado("malo","No se pudo validar","No hay conexión con el servidor. NO se registró la entrada de "+folio+". Intenta de nuevo antes de dejarlo/a pasar.");
     return;
   }
@@ -603,6 +608,7 @@ async function validar(codigo){
     return;
   }
   if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
+  else if(r.resultado === "otro_evento") mostrarResultado("malo","Boleto de otro evento","Este boleto de "+r.nombre+" es para "+r.evento+(r.fecha?" ("+fechaLegible(r.fecha)+")":"")+", no para el evento elegido arriba. No se registró la entrada.");
   else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).length?" ("+[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
   else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")?[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+" · ":"")+r.folio);
   $("#p-folio").value="";
@@ -633,13 +639,39 @@ async function cargarBoletos(){
 }
 function pintarTabla(lista){
   if(!lista.length){ $("#tabla-boletos").innerHTML = '<div class="vacio">Todavía no hay boletos para este evento.</div>'; return; }
+  // El estado del correo y el botón de reenviar van una sola vez por compra
+  // (en su primer boleto de la lista), porque el correo lleva todos sus boletos.
+  const ventasVistas = new Set();
+  const lineaCorreo = b => {
+    if(!b.ventaId || ventasVistas.has(b.ventaId)) return "";
+    ventasVistas.add(b.ventaId);
+    const c = b.correo;
+    const estado = !c ? "" : c.estado==="enviado"
+      ? `<span style="color:var(--verde)">Correo enviado</span>`
+      : `<span style="color:var(--rojo)" title="${escapar(c.error||"")}">⚠ El correo no se pudo enviar</span>`;
+    return `<div style="font-size:12px;margin-top:4px">${estado} <button class="btn claro" style="padding:2px 8px;font-size:12px" data-reenviar="${escapar(b.ventaId)}" data-correo="${escapar(b.contacto||"")}">Reenviar correo</button></div>`;
+  };
   $("#tabla-boletos").innerHTML = `<table><thead><tr><th>Folio</th><th>Nombre</th><th>Pago</th><th>Estado</th></tr></thead><tbody>
     ${lista.map(b=>`<tr>
       <td>${b.folio}</td>
-      <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div></td>
+      <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div>${lineaCorreo(b)}</td>
       <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}${b.mesa?" · Mesa "+escapar(b.mesa):""}</div></td>
       <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
     </tr>`).join("")}</tbody></table>`;
+  $("#tabla-boletos").querySelectorAll("[data-reenviar]").forEach(boton=>{
+    boton.onclick = ()=>reenviarCorreo(boton.dataset.reenviar, boton.dataset.correo);
+  });
+}
+async function reenviarCorreo(ventaId, correoActual){
+  const correo = prompt("¿A qué correo se mandan los boletos de esta compra? (Corrígelo si estaba mal escrito)", correoActual.includes("@") ? correoActual : "");
+  if(correo === null) return;
+  try{
+    const r = await api("/api/admin/reenviar-correo", {method:"POST", body: JSON.stringify({ventaId, correo: correo.trim()})});
+    alert(r && r.ok ? "Listo: se mandaron los boletos a "+r.correo.a+"." : (r && r.error) || "No se pudo enviar.");
+  }catch(e){
+    alert("No se pudo enviar. Revisa tu conexión e intenta de nuevo.");
+  }
+  cargarBoletos();
 }
 
 /* ---------- Venta manual ---------- */
@@ -746,7 +778,7 @@ async function cargarPanel(){
     <div class="metrica"><b>${pesos(p.ingresos)}</b><span>ingresos</span></div>
     <div class="metrica"><b>${p.usados}</b><span>ya entraron</span></div>
     <div class="metrica"><b>${Math.max(0,p.cupo-p.vendidos)}</b><span>lugares libres</span></div>`;
-  $("#panel-avisos").innerHTML = (p.conflictos||[]).map(c=>`<div class="error-caja ver" style="margin-bottom:12px">⚠ Mesa repetida: ${escapar(c.nombre)} pagó la(s) mesa(s) ${escapar(c.mesas.join(", "))}, pero ya estaba(n) vendida(s) a otra persona. Hay que resolverlo con alguno de los dos clientes.</div>`).join("");
+  $("#panel-avisos").innerHTML = (p.correosFallidos ? `<div class="error-caja ver" style="margin-bottom:12px">⚠ ${p.correosFallidos} compra(s) no recibieron sus boletos por correo (falló el envío). Búscalas en la pestaña Boletos y usa "Reenviar correo".</div>` : "") + (p.conflictos||[]).map(c=>`<div class="error-caja ver" style="margin-bottom:12px">⚠ Mesa repetida: ${escapar(c.nombre)} pagó la(s) mesa(s) ${escapar(c.mesas.join(", "))}, pero ya estaba(n) vendida(s) a otra persona. Hay que resolverlo con alguno de los dos clientes.</div>`).join("");
   if(p.porZona && p.porZona.length){
     $("#panel-zonas").style.display = "";
     $("#zonas-resumen").innerHTML = (p.mesas ? `<div style="font-size:14px;margin-bottom:8px;color:var(--ambar)">Mesas vendidas: ${p.mesas.vendidas} de ${p.mesas.total}</div>` : "") + p.porZona.map(z=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(z.nombre)} · ${z.vendidos}/${z.cupo}</span><span>${pesos(z.ingresos)}</span></div>`).join("");

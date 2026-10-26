@@ -37,7 +37,7 @@ const {
 } = process.env;
 
 if (!MP_ACCESS_TOKEN) console.warn("⚠️  Falta MP_ACCESS_TOKEN en las variables de entorno.");
-if (!MP_WEBHOOK_SECRET) console.warn("⚠️  Falta MP_WEBHOOK_SECRET: el webhook no podrá verificar firmas.");
+if (!MP_WEBHOOK_SECRET) console.warn("⚠️  Falta MP_WEBHOOK_SECRET: el webhook rechazará todos los avisos de pago.");
 if (!ADMIN_KEY) console.warn("⚠️  Falta ADMIN_KEY: el panel de organizador quedaría sin contraseña.");
 if (!RESEND_API_KEY) console.warn("⚠️  Falta RESEND_API_KEY: los boletos no se enviarán por correo automáticamente.");
 if (!BACKUP_EMAIL) console.warn("⚠️  Falta BACKUP_EMAIL: el respaldo diario solo se guardará en el servidor, no por correo.");
@@ -151,6 +151,29 @@ async function textoDB() {
   });
 }
 
+// Manda por correo a BACKUP_EMAIL una copia comprimida de db.json. Lanza un
+// error si el envío falla.
+async function enviarRespaldoPorCorreo(texto, { titulo, archivo, descripcion }) {
+  if (!resend || !BACKUP_EMAIL) return;
+  const comprimido = gzipSync(texto);
+  const pesoMB = (comprimido.length / 1024 / 1024).toFixed(1);
+  const correo = comprimido.length <= MAX_ADJUNTO_BYTES
+    ? {
+        subject: `Respaldo massticket ${titulo}`,
+        html: `<p>${descripcion} de <code>db.json</code> (${pesoMB} MB comprimido).</p>
+          <p>Contiene datos personales de clientes: guárdalo en un lugar seguro.</p>
+          <p>Para abrirlo, descomprime el archivo <code>.gz</code>; adentro está el <code>db.json</code>.</p>`,
+        attachments: [{ filename: `massticket-respaldo-${archivo}.json.gz`, content: comprimido.toString("base64") }],
+      }
+    : {
+        subject: `⚠️ Respaldo massticket ${titulo}: demasiado grande para el correo`,
+        html: `<p>El respaldo pesa ${pesoMB} MB comprimido y no cabe en un correo.</p>
+          <p>Se guardó en el servidor y puedes bajarlo con el botón "Descargar respaldo" del Panel.</p>`,
+      };
+  const { error } = await resend.emails.send({ from: EMAIL_FROM, to: BACKUP_EMAIL, ...correo });
+  if (error) throw new Error(error.message || JSON.stringify(error));
+}
+
 async function respaldoDiario() {
   const hoy = hoyMX();
   if (dbDañada) return; // ya se avisó; no se respalda un archivo dañado
@@ -178,25 +201,7 @@ async function respaldoDiario() {
     }
 
     // Copia por correo, comprimida.
-    if (resend && BACKUP_EMAIL) {
-      const comprimido = gzipSync(texto);
-      const pesoMB = (comprimido.length / 1024 / 1024).toFixed(1);
-      const correo = comprimido.length <= MAX_ADJUNTO_BYTES
-        ? {
-            subject: `Respaldo massticket ${hoy}`,
-            html: `<p>Respaldo diario de <code>db.json</code> (${pesoMB} MB comprimido).</p>
-              <p>Contiene datos personales de clientes: guárdalo en un lugar seguro.</p>
-              <p>Para abrirlo, descomprime el archivo <code>.gz</code>; adentro está el <code>db.json</code>.</p>`,
-            attachments: [{ filename: `massticket-respaldo-${hoy}.json.gz`, content: comprimido.toString("base64") }],
-          }
-        : {
-            subject: `⚠️ Respaldo massticket ${hoy}: demasiado grande para el correo`,
-            html: `<p>El respaldo pesa ${pesoMB} MB comprimido y no cabe en un correo.</p>
-              <p>Se guardó en el servidor y puedes bajarlo con el botón "Descargar respaldo" del Panel.</p>`,
-          };
-      const { error } = await resend.emails.send({ from: EMAIL_FROM, to: BACKUP_EMAIL, ...correo });
-      if (error) throw new Error(error.message || JSON.stringify(error));
-    }
+    await enviarRespaldoPorCorreo(texto, { titulo: hoy, archivo: hoy, descripcion: "Respaldo diario" });
 
     await fs.writeFile(ULTIMO_RESPALDO_PATH, hoy);
     console.log(`Respaldo del ${hoy} listo${resend && BACKUP_EMAIL ? " y enviado a " + BACKUP_EMAIL : " (solo copia local)"}.`);
@@ -205,7 +210,67 @@ async function respaldoDiario() {
   }
 }
 
+// Respaldos extra en días de evento: el respaldo diario sale a las 6:00 am,
+// así que sin esto, si el volumen se perdiera en la noche del evento, se
+// perderían las ventas del día; las de Mercado Pago se recuperan con
+// "Revisar con Mercado Pago", pero las ventas manuales (efectivo, cortesías)
+// no. Por eso, los días que hay un evento, cada HORAS_ENTRE_RESPALDOS_EXTRA
+// horas (y solo si db.json cambió) se guarda otra copia y se manda por correo.
+const HORAS_ENTRE_RESPALDOS_EXTRA = 3;
+const MAX_RESPALDOS_EXTRA_LOCALES = 16;
+const ULTIMO_RESPALDO_EXTRA_PATH = path.join(DATA_DIR, "ultimo-respaldo-extra.txt");
+
+async function respaldoDiaDeEvento() {
+  if (dbDañada) return;
+  try {
+    const ahora = Date.now();
+    const ultimo = Date.parse((await fs.readFile(ULTIMO_RESPALDO_EXTRA_PATH, "utf8").catch(() => "")).trim()) || 0;
+    if (ahora - ultimo < HORAS_ENTRE_RESPALDOS_EXTRA * 3600 * 1000) return;
+    const info = await fs.stat(DB_PATH).catch(() => null);
+    if (!info || info.mtimeMs <= ultimo) return; // no ha cambiado nada desde el último
+    const hoy = hoyMX();
+    const db = await leerDB();
+    if (!db.eventos.some((e) => e.fecha === hoy)) return;
+
+    const texto = await textoDB();
+    // Fecha y hora de México (UTC-6, sin horario de verano) para el nombre: "2026-10-23-2315".
+    const sello = new Date(ahora - 6 * 3600 * 1000).toISOString().slice(0, 16).replace("T", "-").replace(":", "");
+    await fs.mkdir(RESPALDOS_DIR, { recursive: true });
+    await fs.writeFile(path.join(RESPALDOS_DIR, `db-${sello}.json`), texto);
+    const locales = (await fs.readdir(RESPALDOS_DIR)).filter((f) => /^db-\d{4}-\d{2}-\d{2}-\d{4}\.json$/.test(f)).sort();
+    for (const viejo of locales.slice(0, Math.max(0, locales.length - MAX_RESPALDOS_EXTRA_LOCALES))) {
+      await fs.unlink(path.join(RESPALDOS_DIR, viejo));
+    }
+    // Se anota antes del correo: si el correo falla, se reintenta en el
+    // siguiente turno (3 horas) y no cada 15 minutos, para no gastar la cuota.
+    await fs.writeFile(ULTIMO_RESPALDO_EXTRA_PATH, new Date(ahora).toISOString());
+
+    const hora = `${sello.slice(11, 13)}:${sello.slice(13, 15)}`;
+    await enviarRespaldoPorCorreo(texto, { titulo: `${hoy} ${hora} (día de evento)`, archivo: sello, descripcion: "Respaldo extra del día de evento" });
+    console.log(`Respaldo extra ${sello} listo${resend && BACKUP_EMAIL ? " y enviado a " + BACKUP_EMAIL : " (solo copia local)"}.`);
+  } catch (err) {
+    console.error("Error haciendo el respaldo extra del día de evento:", err);
+  }
+}
+
 /* ---------------- Utilidades ---------------- */
+
+// Para meter texto (nombres, referencias) dentro del HTML de un correo.
+function escaparHtml(t) {
+  return String(t ?? "").replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Aviso por correo al organizador (a BACKUP_EMAIL) de algo que hay que
+// revisar a mano. Si el correo no está configurado, queda solo en el log.
+async function avisarPorCorreo(asunto, html) {
+  if (!resend || !BACKUP_EMAIL) return;
+  try {
+    const { error } = await resend.emails.send({ from: EMAIL_FROM, to: BACKUP_EMAIL, subject: asunto, html });
+    if (error) throw new Error(error.message || JSON.stringify(error));
+  } catch (err) {
+    console.error("No se pudo mandar el aviso por correo:", asunto, err);
+  }
+}
 
 const ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function folioNuevo(i) {
@@ -258,6 +323,11 @@ function hoyMX(ahora = Date.now()) {
 //                     (1 para zonas normales; 2 o 4 para palcos),
 //   cupo            = lugares (personas) disponibles en total en esa zona.
 // Cada boleto individual vale precio / personas.
+// El cartel llega del panel como "data:image/...;base64,...". Cualquier otra
+// cosa se rechaza, porque se pone tal cual en <img src> de las páginas.
+function imagenValida(imagen) {
+  return imagen === "" || /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(imagen);
+}
 function zonasDe(evento) {
   return Array.isArray(evento?.zonas) ? evento.zonas : [];
 }
@@ -402,9 +472,40 @@ function conOcupacion(db, e) {
   return salida;
 }
 
+// Compara la clave de organizador sin que el tiempo de respuesta delate
+// cuántos caracteres coinciden (se comparan los hash, que miden lo mismo).
+function claveCorrecta(clave) {
+  if (!ADMIN_KEY || typeof clave !== "string") return false;
+  const a = crypto.createHash("sha256").update(clave).digest();
+  const b = crypto.createHash("sha256").update(ADMIN_KEY).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+// Para que nadie pueda probar claves sin fin: después de MAX_FALLOS_CLAVE
+// intentos con clave incorrecta desde la misma IP, esa IP queda bloqueada
+// hasta que pasen VENTANA_FALLOS_CLAVE_MS desde el primer fallo.
+const MAX_FALLOS_CLAVE = 20;
+const VENTANA_FALLOS_CLAVE_MS = 15 * 60 * 1000;
+const fallosClave = new Map(); // ip -> { n, desde }
 function requiereAdmin(req, res, next) {
+  const ahora = Date.now();
+  const ip = req.ip;
+  let f = fallosClave.get(ip);
+  if (f && ahora - f.desde > VENTANA_FALLOS_CLAVE_MS) { fallosClave.delete(ip); f = null; }
+  if (f && f.n >= MAX_FALLOS_CLAVE) {
+    return res.status(429).json({ error: "Demasiados intentos con clave incorrecta. Espera 15 minutos e intenta de nuevo." });
+  }
   const clave = req.get("x-admin-key");
-  if (!ADMIN_KEY || clave !== ADMIN_KEY) {
+  if (!claveCorrecta(clave)) {
+    // Una clave vacía no cuenta como intento: no sirve para adivinar nada.
+    if (!clave) return res.status(401).json({ error: "No autorizado" });
+    if (fallosClave.size > 10000) {
+      for (const [k, v] of fallosClave) if (ahora - v.desde > VENTANA_FALLOS_CLAVE_MS) fallosClave.delete(k);
+    }
+    if (!f) { f = { n: 0, desde: ahora }; fallosClave.set(ip, f); }
+    f.n++;
+    if (f.n === 1) console.warn(`Clave de organizador incorrecta desde ${ip}.`);
+    if (f.n === MAX_FALLOS_CLAVE) console.warn(`Clave de organizador incorrecta ${MAX_FALLOS_CLAVE} veces desde ${ip}: se bloquea esa IP 15 minutos.`);
     return res.status(401).json({ error: "No autorizado" });
   }
   next();
@@ -415,7 +516,7 @@ function requiereAdmin(req, res, next) {
 function verificarFirma(req) {
   const xSignature = req.get("x-signature");
   const xRequestId = req.get("x-request-id");
-  const dataId = (req.query["data.id"] || "").toLowerCase();
+  const dataId = String(req.query["data.id"] || "").toLowerCase();
   if (!xSignature || !xRequestId || !dataId || !MP_WEBHOOK_SECRET) return false;
 
   const partes = Object.fromEntries(
@@ -514,26 +615,30 @@ async function generarPDFBoletos({ evento, boletos }) {
 // Envía por correo los boletos recién emitidos (compra en línea o venta
 // manual). No hace nada si Resend no está configurado, o si el "contacto"
 // que se guardó no parece un correo (por ejemplo, si es un teléfono).
+// El resultado queda guardado en la venta (venta.correo) para que el panel
+// muestre a quién no le llegaron sus boletos y se los pueda reenviar.
 async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
   if (!resend) return;
   if (!contacto || !contacto.includes("@")) return;
   if (!boletos || !boletos.length) return;
+  let error = null;
   try {
     const pdf = await generarPDFBoletos({ evento, boletos });
     const cantidad = boletos.length;
     const mesasTexto = [...new Set(boletos.filter((b) => b.mesa).map((b) => b.mesa))];
     const lineaMesas = mesasTexto.length
-      ? `<p><strong>Mesa${mesasTexto.length > 1 ? "s" : ""}: ${mesasTexto.join(", ")}</strong></p>`
+      ? `<p><strong>Mesa${mesasTexto.length > 1 ? "s" : ""}: ${escaparHtml(mesasTexto.join(", "))}</strong></p>`
       : "";
-    await resend.emails.send({
+    // Resend no lanza un error cuando falla el envío: lo devuelve en "error".
+    const respuesta = await resend.emails.send({
       from: EMAIL_FROM,
       to: contacto,
       subject: `Tus boleto${cantidad > 1 ? "s" : ""} para ${evento?.nombre || "tu evento"}`,
       html: `
-        <p>Hola ${nombre || ""},</p>
+        <p>Hola ${escaparHtml(nombre)},</p>
         <p>Aquí tienes tu${cantidad > 1 ? "s" : ""} boleto${cantidad > 1 ? "s" : ""} para
-        <strong>${evento?.nombre || "el evento"}</strong>
-        (${fechaLegibleServidor(evento?.fecha)}, ${evento?.lugar || "lugar por confirmar"}).</p>
+        <strong>${escaparHtml(evento?.nombre || "el evento")}</strong>
+        (${escaparHtml(fechaLegibleServidor(evento?.fecha))}, ${escaparHtml(evento?.lugar || "lugar por confirmar")}).</p>
         ${lineaMesas}
         <p>Va adjunto en PDF con tu código QR: solo muéstralo (impreso o desde tu teléfono) en la entrada.</p>
         <p style="color:#888;font-size:12px;margin-top:24px;">
@@ -547,14 +652,39 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
         },
       ],
     });
+    if (respuesta?.error) throw new Error(respuesta.error.message || JSON.stringify(respuesta.error));
   } catch (err) {
-    console.error("Error enviando boletos por correo:", err);
+    console.error("Error enviando boletos por correo a", contacto, err);
+    error = String(err?.message || err).slice(0, 300);
+  }
+
+  const ventaId = boletos[0].ventaId;
+  if (!ventaId) return;
+  try {
+    await conCandado(async () => {
+      const db = await leerDB();
+      const venta = db.ventas.find((v) => v.id === ventaId);
+      if (!venta) return;
+      venta.correo = { estado: error ? "fallo" : "enviado", a: contacto, en: new Date().toISOString(), ...(error ? { error } : {}) };
+      await escribirDB(db);
+    });
+  } catch (err) {
+    console.error("No se pudo guardar el resultado del correo de la venta", ventaId, err);
   }
 }
 
 /* ---------------- App ---------------- */
 
+// Express 4 no atrapa los errores de las rutas async: sin esto, un error
+// inesperado (por ejemplo, el disco lleno al guardar) tumbaba todo el
+// servidor y se cortaban las compras que estaban en curso. Con esto, el
+// error llega al manejador del final, que lo registra y contesta 500.
+const seguro = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 const app = express();
+// Railway pasa las peticiones por su proxy: con esto, req.ip es la IP real
+// del visitante (la que agrega el proxy) y no la del proxy.
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "12mb" })); // 12mb: alcanza para el cartel del evento en base64
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -570,7 +700,7 @@ app.use("/api", (req, res, next) => {
 });
 
 // -------- Eventos: listar (público, para la página de inicio) --------
-app.get("/api/eventos", async (req, res) => {
+app.get("/api/eventos", seguro(async (req, res) => {
   const db = await leerDB();
   // Por defecto (la página pública) solo se muestran eventos de hoy en
   // adelante; al día siguiente del evento deja de aparecer solo, sin que
@@ -580,7 +710,7 @@ app.get("/api/eventos", async (req, res) => {
   const hoy = hoyMX(); // "AAAA-MM-DD"
   // Con ?todos=1 se ven también los eventos pasados y los ocultos, pero solo
   // si la petición trae la clave de organizador (el panel la manda siempre).
-  const esAdmin = !!ADMIN_KEY && req.get("x-admin-key") === ADMIN_KEY;
+  const esAdmin = claveCorrecta(req.get("x-admin-key"));
   const mostrarTodos = req.query.todos === "1" && esAdmin;
   const lista = db.eventos
     .filter((e) => mostrarTodos || (!e.oculto && (!e.fecha || e.fecha >= hoy)))
@@ -594,18 +724,18 @@ app.get("/api/eventos", async (req, res) => {
       return a.fecha.localeCompare(b.fecha);
     });
   res.json(lista);
-});
+}));
 
 // -------- Un evento (público, para la página de compra de ese evento) --------
-app.get("/api/eventos/:id", async (req, res) => {
+app.get("/api/eventos/:id", seguro(async (req, res) => {
   const db = await leerDB();
   const evento = db.eventos.find((e) => e.id === req.params.id);
   if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
   res.json(conOcupacion(db, evento));
-});
+}));
 
 // -------- Mapas de mesas disponibles (para el formulario de eventos) --------
-app.get("/api/mapas", async (req, res) => {
+app.get("/api/mapas", seguro(async (req, res) => {
   try {
     const dir = path.join(__dirname, "..", "public", "mapas");
     const archivos = (await fs.readdir(dir)).filter((f) => f.endsWith(".json"));
@@ -618,11 +748,12 @@ app.get("/api/mapas", async (req, res) => {
   } catch {
     res.json([]);
   }
-});
+}));
 
 // -------- Crear evento (admin) --------
-app.post("/api/eventos", requiereAdmin, async (req, res) => {
+app.post("/api/eventos", requiereAdmin, seguro(async (req, res) => {
   const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
+  if (typeof imagen === "string" && !imagenValida(imagen)) return res.status(400).json({ error: "La imagen del cartel no es válida." });
   await conCandado(async () => {
     const db = await leerDB();
     const mapa = mapaId ? cargarMapa(mapaId) : null;
@@ -652,11 +783,12 @@ app.post("/api/eventos", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json(nuevo);
   });
-});
+}));
 
 // -------- Editar evento (admin) --------
-app.put("/api/eventos/:id", requiereAdmin, async (req, res) => {
+app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
   const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
+  if (typeof imagen === "string" && !imagenValida(imagen)) return res.status(400).json({ error: "La imagen del cartel no es válida." });
   await conCandado(async () => {
     const db = await leerDB();
     const evento = db.eventos.find((e) => e.id === req.params.id);
@@ -726,10 +858,10 @@ app.put("/api/eventos/:id", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json(evento);
   });
-});
+}));
 
 // -------- Borrar evento (admin) --------
-app.delete("/api/eventos/:id", requiereAdmin, async (req, res) => {
+app.delete("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
   await conCandado(async () => {
     const db = await leerDB();
     const tieneBoletos = db.boletos.some((b) => b.eventoId === req.params.id);
@@ -740,10 +872,10 @@ app.delete("/api/eventos/:id", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json({ ok: true });
   });
-});
+}));
 
 // -------- Comprar (público): crea la preferencia y devuelve el link de pago --------
-app.post("/api/comprar", async (req, res) => {
+app.post("/api/comprar", seguro(async (req, res) => {
   const ventaId = uuid();
   let ventaCreada = false;
   try {
@@ -913,17 +1045,17 @@ app.post("/api/comprar", async (req, res) => {
     }
     res.status(500).json({ error: "No se pudo iniciar el pago. Intenta de nuevo." });
   }
-});
+}));
 
 // -------- Estado de una venta (para la página de gracias) --------
-app.get("/api/venta/:id", async (req, res) => {
+app.get("/api/venta/:id", seguro(async (req, res) => {
   const db = await leerDB();
   const venta = db.ventas.find((v) => v.id === req.params.id);
   if (!venta) return res.status(404).json({ error: "Venta no encontrada" });
   const boletos = db.boletos.filter((b) => b.ventaId === venta.id);
   const evento = db.eventos.find((e) => e.id === venta.eventoId) || null;
   res.json({ estado: venta.estado, evento, boletos });
-});
+}));
 
 // Aplica un pago YA APROBADO de Mercado Pago a una venta pendiente: la marca
 // como pagada y emite sus boletos. La usan tanto el webhook (apenas llega el
@@ -936,7 +1068,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
   await conCandado(async () => {
     const db = await leerDB();
     const venta = db.ventas.find((v) => v.id === ventaId);
-    if (!venta) return;
+    if (!venta) { resultado = { ventaNoEncontrada: true }; return; }
     if (venta.estado === "pagado") return; // idempotencia: ya se procesó este pago
 
     venta.estado = "pagado";
@@ -1022,41 +1154,65 @@ async function aplicarPagoAprobado(ventaId, pago) {
 }
 
 // -------- Webhook de Mercado Pago: única fuente de verdad del pago --------
-app.post("/api/webhook/mercadopago", async (req, res) => {
-  // Responder rápido evita reintentos innecesarios de Mercado Pago;
-  // el trabajo pesado va después de contestar.
+// Se le contesta "OK" a Mercado Pago solo DESPUÉS de guardar los boletos. Si
+// algo falla (Mercado Pago no responde, no se pudo guardar), se contesta con
+// error y Mercado Pago vuelve a mandar el aviso más tarde; antes se contestaba
+// "OK" de entrada y, si fallaba, el pago se quedaba sin boletos hasta que
+// alguien usara "Revisar con Mercado Pago". Repetir el aviso no duplica
+// boletos: aplicarPagoAprobado() no hace nada si la venta ya está pagada.
+app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
+  const tipo = req.query.type || req.body?.type;
+  if (tipo !== "payment") return res.sendStatus(200);
+
+  // Sin MP_WEBHOOK_SECRET no se puede saber si el aviso es de Mercado Pago,
+  // así que se rechaza (antes se aceptaba). Los pagos se pueden confirmar
+  // igual con "Revisar con Mercado Pago" mientras se configura.
+  if (!verificarFirma(req)) {
+    console.warn(MP_WEBHOOK_SECRET ? "Webhook con firma inválida, se ignora." : "Webhook rechazado: falta MP_WEBHOOK_SECRET.");
+    return res.sendStatus(401);
+  }
+
+  const paymentId = req.query["data.id"] || req.body?.data?.id;
+  if (!paymentId) return res.sendStatus(200);
+
+  let resultado;
+  let pago;
+  try {
+    const paymentApi = new Payment(mpClient);
+    pago = await paymentApi.get({ id: paymentId });
+    if (pago.status !== "approved") return res.sendStatus(200);
+    resultado = await aplicarPagoAprobado(pago.external_reference, pago);
+  } catch (err) {
+    console.error("Error procesando webhook (Mercado Pago lo reintentará):", err);
+    return res.sendStatus(500);
+  }
   res.sendStatus(200);
 
-  try {
-    const tipo = req.query.type || req.body?.type;
-    if (tipo !== "payment") return;
-
-    if (MP_WEBHOOK_SECRET && !verificarFirma(req)) {
-      console.warn("Webhook con firma inválida, se ignora.");
-      return;
+  // Lo que sigue va después de contestar, para no hacer esperar a Mercado Pago.
+  if (resultado?.ventaNoEncontrada) {
+    // Pago aprobado que no corresponde a ninguna venta: no se emitieron
+    // boletos. Sin external_reference no es de este sitio (por ejemplo, un
+    // cobro hecho con la misma cuenta por otro medio); con uno, hay que revisarlo.
+    console.error("Pago aprobado sin venta:", pago.id, pago.external_reference);
+    if (pago.external_reference) {
+      avisarPorCorreo(
+        "⚠️ massticket: pago aprobado sin venta",
+        `<p>Mercado Pago aprobó el pago <strong>${escaparHtml(pago.id)}</strong>
+          (${escaparHtml(pago.transaction_amount)} ${escaparHtml(pago.currency_id)}) con la referencia
+          <code>${escaparHtml(pago.external_reference)}</code>, pero no existe ninguna venta con esa referencia,
+          así que <strong>no se emitieron boletos</strong>.</p>
+          <p>Búscalo en Mercado Pago para saber quién pagó y, si corresponde, hazle una venta manual o devuélvele el dinero.</p>`
+      );
     }
-
-    const paymentId = req.query["data.id"] || req.body?.data?.id;
-    if (!paymentId) return;
-
-    const paymentApi = new Payment(mpClient);
-    const pago = await paymentApi.get({ id: paymentId });
-
-    if (pago.status !== "approved") return;
-
-    const resultado = await aplicarPagoAprobado(pago.external_reference, pago);
-    if (resultado?.evento && resultado.boletos?.length) {
-      await enviarBoletosPorEmail({
-        evento: resultado.evento,
-        nombre: resultado.nombre,
-        contacto: resultado.contacto,
-        boletos: resultado.boletos,
-      });
-    }
-  } catch (err) {
-    console.error("Error procesando webhook:", err);
+  } else if (resultado?.evento && resultado.boletos?.length) {
+    enviarBoletosPorEmail({
+      evento: resultado.evento,
+      nombre: resultado.nombre,
+      contacto: resultado.contacto,
+      boletos: resultado.boletos,
+    });
   }
-});
+}));
 
 // -------- Admin: revisar con Mercado Pago las ventas "pendientes" --------
 // Por si el aviso automático (webhook) nunca llegó -por ejemplo si el sitio
@@ -1064,7 +1220,7 @@ app.post("/api/webhook/mercadopago", async (req, res) => {
 // venta por venta, si en realidad ya está aprobada. Las que sí lo están se
 // confirman aquí también: se emiten sus boletos y se manda el correo con el
 // PDF, exactamente igual que si el webhook hubiera funcionado a tiempo.
-app.post("/api/admin/reconciliar-pagos", requiereAdmin, async (req, res) => {
+app.post("/api/admin/reconciliar-pagos", requiereAdmin, seguro(async (req, res) => {
   try {
     const db = await leerDB();
     const pendientes = db.ventas.filter((v) => v.estado === "pendiente");
@@ -1107,10 +1263,10 @@ app.post("/api/admin/reconciliar-pagos", requiereAdmin, async (req, res) => {
     console.error("Error en reconciliación de pagos:", err);
     res.status(500).json({ error: "No se pudo revisar los pagos pendientes." });
   }
-});
+}));
 
 // -------- Admin: venta manual (efectivo/cortesía/promoción en puerta) --------
-app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
+app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
   const eventoId = String(req.body?.eventoId || "");
   const nombre = String(req.body?.nombre || "").trim();
   const contacto = String(req.body?.contacto || "").trim();
@@ -1226,13 +1382,13 @@ app.post("/api/ventas-manuales", requiereAdmin, async (req, res) => {
   if (eventoParaCorreo && boletosParaCorreo) {
     enviarBoletosPorEmail({ evento: eventoParaCorreo, nombre, contacto, boletos: boletosParaCorreo });
   }
-});
+}));
 
 // -------- Admin: clientes (junta todos los boletos por comprador) --------
 // Agrupa por correo si hay uno; si no, por teléfono; si tampoco hay eso,
 // por nombre (mejor esfuerzo -dos personas con el mismo nombre y sin
 // correo ni teléfono se verían como una sola, pero es un caso raro).
-app.get("/api/clientes", requiereAdmin, async (req, res) => {
+app.get("/api/clientes", requiereAdmin, seguro(async (req, res) => {
   const db = await leerDB();
   const esEmail = (s) => String(s || "").includes("@");
   const grupos = new Map();
@@ -1283,23 +1439,74 @@ app.get("/api/clientes", requiereAdmin, async (req, res) => {
     .sort((a, b) => (b.ultimaCompra || "").localeCompare(a.ultimaCompra || ""));
 
   res.json(lista);
-});
+}));
 
 // -------- Admin: listar boletos (opcionalmente filtrados por evento) --------
-app.get("/api/boletos", requiereAdmin, async (req, res) => {
+app.get("/api/boletos", requiereAdmin, seguro(async (req, res) => {
   const db = await leerDB();
   const { eventoId } = req.query;
   const lista = eventoId ? db.boletos.filter((b) => b.eventoId === eventoId) : db.boletos;
-  res.json(lista);
-});
+  // Cada boleto lleva el resultado del correo de su venta (no se guarda en el boleto).
+  const correoDe = new Map(db.ventas.filter((v) => v.correo).map((v) => [v.id, v.correo]));
+  res.json(lista.map((b) => (correoDe.has(b.ventaId) ? { ...b, correo: correoDe.get(b.ventaId) } : b)));
+}));
+
+// -------- Admin: reenviar por correo los boletos de una venta --------
+// Por si el correo no llegó (falló el envío, o el cliente escribió mal su
+// correo). Se puede mandar a un correo corregido: en ese caso también se
+// actualiza el contacto de la venta y de sus boletos.
+app.post("/api/admin/reenviar-correo", requiereAdmin, seguro(async (req, res) => {
+  if (!resend) return res.status(400).json({ error: "El envío de correos no está configurado (falta RESEND_API_KEY)." });
+  const ventaId = String(req.body?.ventaId || "");
+  const nuevoCorreo = String(req.body?.correo || "").trim();
+  if (nuevoCorreo && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nuevoCorreo)) {
+    return res.status(400).json({ error: "Ese correo no parece válido." });
+  }
+  let datos = null;
+  let falla = null;
+  await conCandado(async () => {
+    const db = await leerDB();
+    const venta = db.ventas.find((v) => v.id === ventaId);
+    if (!venta) { falla = { status: 404, error: "Venta no encontrada." }; return; }
+    const boletos = db.boletos.filter((b) => b.ventaId === venta.id);
+    if (!boletos.length) { falla = { status: 409, error: "Esta venta todavía no tiene boletos." }; return; }
+    if (nuevoCorreo && nuevoCorreo !== venta.contacto) {
+      venta.contacto = nuevoCorreo;
+      for (const b of boletos) b.contacto = nuevoCorreo;
+      await escribirDB(db);
+    }
+    if (!String(venta.contacto || "").includes("@")) { falla = { status: 400, error: "Esta venta no tiene correo. Escribe uno." }; return; }
+    datos = { evento: db.eventos.find((e) => e.id === venta.eventoId) || null, nombre: venta.nombre, contacto: venta.contacto, boletos };
+  });
+  if (falla) return res.status(falla.status).json({ error: falla.error });
+  await enviarBoletosPorEmail(datos);
+  const db = await leerDB();
+  const correo = db.ventas.find((v) => v.id === ventaId)?.correo || null;
+  if (correo?.estado !== "enviado") return res.status(502).json({ error: "No se pudo enviar: " + (correo?.error || "error desconocido"), correo });
+  res.json({ ok: true, correo });
+}));
 
 // -------- Puerta: validar folio (admin) --------
-app.post("/api/validar", requiereAdmin, async (req, res) => {
+app.post("/api/validar", requiereAdmin, seguro(async (req, res) => {
   const folio = String(req.body?.folio || "").trim().toUpperCase();
+  // Evento que se está revisando en la puerta. Un boleto de otro evento (por
+  // ejemplo, uno más barato o uno que ya pasó) no deja entrar ni se marca
+  // como usado. Si no viene (una pestaña del panel abierta desde antes de
+  // este cambio), se valida como antes, sin revisar el evento.
+  const eventoId = String(req.body?.eventoId || "");
   await conCandado(async () => {
     const db = await leerDB();
     const b = db.boletos.find((x) => x.folio === folio);
     if (!b) return res.status(404).json({ resultado: "no_existe" });
+    if (eventoId && b.eventoId !== eventoId) {
+      const suEvento = db.eventos.find((e) => e.id === b.eventoId);
+      return res.status(409).json({
+        resultado: "otro_evento",
+        nombre: b.nombre,
+        evento: suEvento?.nombre || "un evento que ya no existe",
+        fecha: suEvento?.fecha || "",
+      });
+    }
     if (b.estado === "usado") {
       return res.json({ resultado: "repetido", nombre: b.nombre, usadoEn: b.usadoEn, zona: b.zona || "", mesa: b.mesa || "" });
     }
@@ -1308,10 +1515,10 @@ app.post("/api/validar", requiereAdmin, async (req, res) => {
     await escribirDB(db);
     res.json({ resultado: "ok", nombre: b.nombre, folio: b.folio, zona: b.zona || "", mesa: b.mesa || "" });
   });
-});
+}));
 
 // -------- Panel (admin), opcionalmente filtrado por evento --------
-app.get("/api/panel", requiereAdmin, async (req, res) => {
+app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
   const db = await leerDB();
   const { eventoId, eventoIds } = req.query;
   // Un evento, un grupo de eventos (actuales o pasados, separados por comas;
@@ -1371,13 +1578,14 @@ app.get("/api/panel", requiereAdmin, async (req, res) => {
     porMetodo,
     ...(mesasInfo ? { mesas: mesasInfo } : {}),
     ...(conflictos.length ? { conflictos } : {}),
+    correosFallidos: ventas.filter((v) => v.correo?.estado === "fallo").length,
     ...(porZona ? { porZona } : {}),
     pendientesDePago: ventas.filter((v) => v.estado === "pendiente").length,
   });
-});
+}));
 
 // -------- Admin: descargar respaldo completo de db.json --------
-app.get("/api/admin/respaldo", requiereAdmin, async (req, res) => {
+app.get("/api/admin/respaldo", requiereAdmin, seguro(async (req, res) => {
   try {
     const texto = await textoDB();
     res.set("Content-Type", "application/json; charset=utf-8");
@@ -1388,6 +1596,22 @@ app.get("/api/admin/respaldo", requiereAdmin, async (req, res) => {
     console.error("Error descargando respaldo:", err);
     res.status(500).json({ error: "No se pudo generar el respaldo." });
   }
+}));
+
+// Manejador de errores: va al final, después de todas las rutas. Los errores
+// de la petición (JSON mal formado, cuerpo demasiado grande) conservan su
+// código 4xx; cualquier otro se registra y se contesta 500.
+app.use((err, req, res, next) => {
+  const status = err.status >= 400 && err.status < 500 ? err.status : 500;
+  if (status === 500) console.error(`Error en ${req.method} ${req.originalUrl}:`, err);
+  if (res.headersSent) return next(err);
+  res.status(status).json({ error: status === 500 ? "Ocurrió un error en el servidor. Intenta de nuevo." : "Petición no válida." });
+});
+
+// Último recurso: un error que se escape de todo lo anterior se registra en
+// lugar de apagar el servidor.
+process.on("unhandledRejection", (err) => {
+  console.error("Error no atrapado (el servidor sigue funcionando):", err);
 });
 
 // Antes de abrir el sitio se revisa que db.json se pueda leer; si está
@@ -1399,5 +1623,7 @@ app.listen(PORT, () => {
   console.log(`URL pública configurada: ${PUBLIC_URL}`);
 });
 
-setTimeout(respaldoDiario, 60 * 1000);
-setInterval(respaldoDiario, 15 * 60 * 1000);
+// El respaldo extra va después del diario para no mandar dos correos juntos a las 6:00 am.
+const respaldos = async () => { await respaldoDiario(); await respaldoDiaDeEvento(); };
+setTimeout(respaldos, 60 * 1000);
+setInterval(respaldos, 15 * 60 * 1000);
