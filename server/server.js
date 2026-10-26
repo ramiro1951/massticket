@@ -487,9 +487,18 @@ function claveCorrecta(clave) {
 const MAX_FALLOS_CLAVE = 20;
 const VENTANA_FALLOS_CLAVE_MS = 15 * 60 * 1000;
 const fallosClave = new Map(); // ip -> { n, desde }
+// IP real del visitante. En Railway las peticiones pasan por un CDN antes de
+// llegar aquí, así que req.ip resulta ser la IP del CDN (la misma para muchos
+// visitantes). La red de Railway escribe la IP real en X-Real-IP y reemplaza
+// la que mande el visitante, así que no se puede falsificar. Si no viene (por
+// ejemplo, en desarrollo local), se usa req.ip.
+function ipVisitante(req) {
+  return String(req.get("x-real-ip") || "").trim().slice(0, 64) || req.ip;
+}
+
 function requiereAdmin(req, res, next) {
   const ahora = Date.now();
-  const ip = req.ip;
+  const ip = ipVisitante(req);
   let f = fallosClave.get(ip);
   if (f && ahora - f.desde > VENTANA_FALLOS_CLAVE_MS) { fallosClave.delete(ip); f = null; }
   if (f && f.n >= MAX_FALLOS_CLAVE) {
@@ -682,8 +691,9 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
 const seguro = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 const app = express();
-// Railway pasa las peticiones por su proxy: con esto, req.ip es la IP real
-// del visitante (la que agrega el proxy) y no la del proxy.
+// Railway pasa las peticiones por su proxy: con esto, req.ip es la IP del
+// último salto antes del proxy (en producción, el CDN). Para la IP real del
+// visitante se usa ipVisitante().
 app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "12mb" })); // 12mb: alcanza para el cartel del evento en base64
