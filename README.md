@@ -31,8 +31,9 @@ contenido y pégalo en las "Environment Variables" del hosting que uses
 (Render, Railway, o el panel de la VPS), reemplazando cada valor de
 ejemplo por el tuyo. Si además quieres probar el proyecto en tu propia
 computadora antes de subirlo, copia ese texto a un archivo nuevo llamado
-exactamente `.env` (con el punto al inicio) dentro de `server/` — ese
-nombre lo lee automáticamente el servidor. Ojo: los archivos que empiezan
+exactamente `.env` (con el punto al inicio) en la carpeta principal del
+proyecto (`massticket/`, no dentro de `server/`) — ese nombre lo lee
+automáticamente el servidor al arrancarlo con `npm run dev` desde ahí. Ojo: los archivos que empiezan
 con punto suelen quedar ocultos en Mac/Windows; si no lo ves después de
 crearlo, es normal, ahí sigue.
 
@@ -63,7 +64,8 @@ Los pasos de abajo son con Railway; en Render es prácticamente igual.
 
 1. Sube esta carpeta (`massticket/`) a un repositorio de GitHub.
 2. En Railway: **New Project → Deploy from GitHub repo** → selecciona el
-   repo. Cuando pregunte el **Root Directory**, pon `server`.
+   repo. Deja el **Root Directory** vacío (la raíz del repo): ahí están el
+   `package.json` y el `package-lock.json`.
 3. En la pestaña **Variables** del proyecto, agrega:
    - `MP_ACCESS_TOKEN` → el Access Token del paso 1
    - `MP_WEBHOOK_SECRET` → la clave secreta del paso 1
@@ -147,11 +149,12 @@ cupo.
 
 ## Notas importantes
 
-- **Los boletos y ventas se guardan en un archivo** (`server/data/db.json`)
+- **Los boletos y ventas se guardan en un archivo** (`db.json`, dentro de la
+  carpeta de `DATA_DIR`; en Railway, el volumen `/data`)
   en el propio servidor. Sirve perfecto para eventos de tamaño chico o
   mediano. Si Railway/Render reinicia el contenedor sin un volumen
   persistente configurado, ese archivo se puede perder — actívales un
-  **volumen persistente** apuntando a `server/data`, o pide que se
+  **volumen persistente** montado en `/data` (con `DATA_DIR=/data`), o pide que se
   migre a una base de datos real (Postgres) si vas a vender boletos todo
   el año.
 - **Respaldos.** El plan Hobby de Railway no respalda el volumen, así que el

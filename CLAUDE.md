@@ -17,14 +17,17 @@ messages are in Spanish; keep it that way.
 - Data: a single JSON file `db.json` with arrays `eventos`, `ventas`, `boletos`, in
   `$DATA_DIR` (Railway volume) or `server/data/` locally. Every write goes through
   `conCandado()` (an in-process lock): always read-modify-write inside it.
-- `package.json` exists at BOTH the root and `server/` with the same dependencies. Keep
-  them in sync until one is removed.
+- `package.json` and `package-lock.json` live only at the repo root; Railway builds from
+  the root (`npm ci`, then `npm start` runs `node server/server.js`). Add or update
+  dependencies with `npm install` at the root so the lock file stays in sync.
 
 ## Key domain rules
 - The webhook (`/api/webhook/mercadopago`) is the only source of truth for payment. Never
   issue tickets from the browser return URL. `aplicarPagoAprobado()` must stay idempotent.
 - Capacity = issued tickets + `pendiente` sales younger than `VENTANA_RESERVA_MS` (20 min).
-  Table-map payment links expire at 19 min (`expiracionMP`).
+  All payment links expire at 19 min (`expiracionMP`) and exclude delayed payment types
+  (OXXO/cash, bank, SPEI: `TIPOS_PAGO_EXCLUIDOS`), so a payment can't arrive after its
+  hold was released.
 - Pricing modes per event: single price, `zonas` (price per purchase / `personas`), or
   `mapaId` (zones derived from the map's sections, price per person).
 - "Today" uses `hoyMX()` (Mexico City time, rolls over at 6:00 am).
@@ -32,8 +35,8 @@ messages are in Spanish; keep it that way.
 
 ## Running locally
 ```
-cd server && npm install && cp env-ejemplo.txt .env   # fill in test values
-npm run dev                                           # http://localhost:3000
+npm install && cp server/env-ejemplo.txt .env   # at the repo root; fill in test values
+npm run dev                                     # http://localhost:3000
 ```
 Env vars: `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `ADMIN_KEY`, `PUBLIC_URL`, `RESEND_API_KEY`,
 `EMAIL_FROM`, `DATA_DIR`, `PORT`. Use Mercado Pago TEST credentials locally, never production.

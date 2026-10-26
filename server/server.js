@@ -433,8 +433,18 @@ function estadoMesas(db, evento) {
   }
   return estado;
 }
+// Tipos de pago de Mercado Pago que NO se ofrecen: los que se aprueban horas
+// o días después de elegirlos (efectivo en tienda como OXXO, pago en banco y
+// transferencia SPEI). El lugar solo se aparta VENTANA_RESERVA_MS, así que un
+// pago así podía llegar cuando el lugar ya se había vendido a otra persona.
+// Quedan tarjetas de crédito/débito y saldo de Mercado Pago.
+const TIPOS_PAGO_EXCLUIDOS = ["ticket", "atm", "bank_transfer"];
+function sinPagosDiferidos() {
+  return { payment_methods: { excluded_payment_types: TIPOS_PAGO_EXCLUIDOS.map((id) => ({ id })) } };
+}
+
 // Hora de vencimiento del link de pago de Mercado Pago (hora de México),
-// para que nadie pague una mesa después de que se liberó su apartado.
+// para que nadie pague un lugar después de que se liberó su apartado.
 function expiracionMP(minutos) {
   const fmt = (ms) => new Date(ms - 6 * 3600 * 1000).toISOString().replace("Z", "-06:00");
   const ahora = Date.now();
@@ -884,9 +894,52 @@ app.delete("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
   });
 }));
 
+// Cada compra iniciada aparta lugares 20 minutos aunque no se pague; sin
+// límite, un programa podía apartar todo el cupo una y otra vez y hacer que
+// el evento pareciera agotado. Se permiten MAX_COMPRAS_POR_IP compras
+// iniciadas por IP cada VENTANA_COMPRAS_MS: alcanza para quien reintenta
+// varias veces o para varias personas que comparten la red del celular.
+const MAX_COMPRAS_POR_IP = 15;
+const VENTANA_COMPRAS_MS = 15 * 60 * 1000;
+const comprasPorIp = new Map(); // ip -> { n, desde }
+function limitarCompras(req, res, next) {
+  const ahora = Date.now();
+  const ip = ipVisitante(req);
+  if (comprasPorIp.size > 10000) {
+    for (const [k, v] of comprasPorIp) if (ahora - v.desde > VENTANA_COMPRAS_MS) comprasPorIp.delete(k);
+  }
+  let c = comprasPorIp.get(ip);
+  if (!c || ahora - c.desde > VENTANA_COMPRAS_MS) { c = { n: 0, desde: ahora }; comprasPorIp.set(ip, c); }
+  if (c.n >= MAX_COMPRAS_POR_IP) {
+    if (c.n === MAX_COMPRAS_POR_IP) console.warn(`Demasiadas compras iniciadas desde ${ip}: se pausan ${VENTANA_COMPRAS_MS / 60000} minutos.`);
+    c.n++;
+    return res.status(429).json({ error: "Hiciste muchos intentos de compra seguidos. Espera unos minutos e intenta de nuevo." });
+  }
+  c.n++;
+  next();
+}
+
+// Además, una misma IP puede tener apartados a la vez como máximo
+// MAX_LUGARES_APARTADOS_POR_IP lugares (durante VENTANA_RESERVA_MS). Su primera
+// compra siempre pasa, aunque sea más grande (por ejemplo, varias mesas),
+// así que nadie se queda sin poder comprar; lo que se evita es que una sola
+// persona aparte el lugar completo con muchas compras seguidas.
+const MAX_LUGARES_APARTADOS_POR_IP = 40;
+const apartadosPorIp = new Map(); // ip -> [{ ventaId, lugares, hasta }]
+function lugaresApartadosDe(ip, ahora = Date.now()) {
+  if (apartadosPorIp.size > 10000) {
+    for (const [k, v] of apartadosPorIp) if (!v.some((a) => a.hasta > ahora)) apartadosPorIp.delete(k);
+  }
+  const vigentes = (apartadosPorIp.get(ip) || []).filter((a) => a.hasta > ahora);
+  if (vigentes.length) apartadosPorIp.set(ip, vigentes);
+  else apartadosPorIp.delete(ip);
+  return vigentes;
+}
+
 // -------- Comprar (público): crea la preferencia y devuelve el link de pago --------
-app.post("/api/comprar", seguro(async (req, res) => {
+app.post("/api/comprar", limitarCompras, seguro(async (req, res) => {
   const ventaId = uuid();
+  const ip = ipVisitante(req);
   let ventaCreada = false;
   try {
     const eventoId = String(req.body?.eventoId || "");
@@ -901,7 +954,6 @@ app.post("/api/comprar", seguro(async (req, res) => {
     // para que dos compras al mismo tiempo no vendan el mismo lugar dos veces.
     let falla = null;
     let evento = null;
-    let esMesas = false;
     const items = [];
     await conCandado(async () => {
       const db = await leerDB();
@@ -945,7 +997,6 @@ app.post("/api/comprar", seguro(async (req, res) => {
             currency_id: "MXN",
           });
         }
-        esMesas = true;
       } else if (zonas.length) {
         lineas = [];
         for (const p of pedidoZonas) {
@@ -986,6 +1037,14 @@ app.post("/api/comprar", seguro(async (req, res) => {
         });
       }
 
+      const apartados = lugaresApartadosDe(ip);
+      const yaApartados = apartados.reduce((t, a) => t + a.lugares, 0);
+      if (yaApartados > 0 && yaApartados + totalBoletos > MAX_LUGARES_APARTADOS_POR_IP) {
+        console.warn(`Compra rechazada: ${ip} ya tiene ${yaApartados} lugares apartados.`);
+        falla = { status: 429, error: "Ya tienes varias compras sin terminar. Termina de pagar esas o espera 20 minutos e intenta de nuevo. Si quieres comprar muchos lugares, escríbenos por WhatsApp." };
+        return;
+      }
+
       db.ventas.push({
         id: ventaId,
         eventoId,
@@ -1000,6 +1059,8 @@ app.post("/api/comprar", seguro(async (req, res) => {
       });
       await escribirDB(db);
       ventaCreada = true;
+      if (!apartadosPorIp.has(ip)) apartadosPorIp.set(ip, apartados);
+      apartados.push({ ventaId, lugares: totalBoletos, hasta: Date.now() + VENTANA_RESERVA_MS });
     });
     if (falla) return res.status(falla.status).json({ error: falla.error });
 
@@ -1017,19 +1078,30 @@ app.post("/api/comprar", seguro(async (req, res) => {
       notification_url: `${PUBLIC_URL}/api/webhook/mercadopago`,
       statement_descriptor: "MASSTICKET",
     };
+    // El link de pago vence antes de que se libere el apartado (VENTANA_RESERVA_MS)
+    // y no ofrece pagos que se aprueban horas o días después (OXXO, SPEI):
+    // así nadie paga un lugar que ya se liberó y se le vendió a otra persona.
+    // Si Mercado Pago rechazara alguna de esas opciones, se reintenta sin
+    // ella para no dejar de vender, y queda el aviso en el log.
+    const intentos = [
+      { ...cuerpoPreferencia, ...sinPagosDiferidos(), ...expiracionMP(19) },
+      { ...cuerpoPreferencia, ...sinPagosDiferidos() },
+      cuerpoPreferencia,
+    ];
     let resultado;
-    if (esMesas) {
-      // Con mesas, el link de pago vence antes de que se libere el apartado,
-      // para que nadie pague una mesa que ya se le dio a otra persona. Si
-      // Mercado Pago rechazara esa opción, se reintenta sin vencimiento.
+    for (let i = 0; i < intentos.length; i++) {
       try {
-        resultado = await preference.create({ body: { ...cuerpoPreferencia, ...expiracionMP(19) } });
+        resultado = await preference.create({ body: intentos[i] });
+        break;
       } catch (e) {
-        console.warn("Mercado Pago no aceptó el vencimiento; se reintenta sin él:", e?.message || e);
-        resultado = await preference.create({ body: cuerpoPreferencia });
+        if (i === intentos.length - 1) throw e;
+        console.warn(
+          i === 0
+            ? "Mercado Pago no aceptó el vencimiento del link; se reintenta sin él:"
+            : "⚠️ Mercado Pago no aceptó excluir OXXO/SPEI; se reintenta sin excluirlos:",
+          e?.message || e
+        );
       }
-    } else {
-      resultado = await preference.create({ body: cuerpoPreferencia });
     }
 
     await conCandado(async () => {
@@ -1043,6 +1115,8 @@ app.post("/api/comprar", seguro(async (req, res) => {
     console.error("Error creando preferencia:", err);
     // Si ya se había apartado el lugar pero Mercado Pago falló, se libera.
     if (ventaCreada) {
+      const apartados = apartadosPorIp.get(ip);
+      if (apartados) apartadosPorIp.set(ip, apartados.filter((a) => a.ventaId !== ventaId));
       try {
         await conCandado(async () => {
           const db3 = await leerDB();
@@ -1224,6 +1298,17 @@ app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
   }
 }));
 
+// Las compras pendientes de más de DIAS_PENDIENTES_VIGENTES días son compras
+// abandonadas (con tarjeta el pago se aprueba en minutos y ya no se ofrece
+// OXXO/SPEI): no se vuelven a revisar ni se cuentan en el Panel. Se quedan
+// guardadas como estaban, y si de verdad llegara su pago, el webhook lo aplica igual.
+const DIAS_PENDIENTES_VIGENTES = 7;
+function pendienteVigente(v, ahora = Date.now()) {
+  if (v.estado !== "pendiente") return false;
+  const creado = v.creado ? new Date(v.creado).getTime() : 0;
+  return ahora - creado < DIAS_PENDIENTES_VIGENTES * 24 * 3600 * 1000;
+}
+
 // -------- Admin: revisar con Mercado Pago las ventas "pendientes" --------
 // Por si el aviso automático (webhook) nunca llegó -por ejemplo si el sitio
 // estaba caído justo en ese momento-, esto le pregunta a Mercado Pago,
@@ -1233,7 +1318,7 @@ app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
 app.post("/api/admin/reconciliar-pagos", requiereAdmin, seguro(async (req, res) => {
   try {
     const db = await leerDB();
-    const pendientes = db.ventas.filter((v) => v.estado === "pendiente");
+    const pendientes = db.ventas.filter((v) => pendienteVigente(v));
     const paymentApi = new Payment(mpClient);
     const confirmadas = [];
     const sinCambio = [];
@@ -1590,7 +1675,7 @@ app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
     ...(conflictos.length ? { conflictos } : {}),
     correosFallidos: ventas.filter((v) => v.correo?.estado === "fallo").length,
     ...(porZona ? { porZona } : {}),
-    pendientesDePago: ventas.filter((v) => v.estado === "pendiente").length,
+    pendientesDePago: ventas.filter((v) => pendienteVigente(v)).length,
   });
 }));
 
