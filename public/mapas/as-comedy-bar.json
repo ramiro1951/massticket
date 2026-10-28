@@ -34,6 +34,7 @@
     {
       "id": "06",
       "seccion": "vip",
+      "area": "VIP 01",
       "asientos": 6,
       "x": 408,
       "y": 148,
@@ -43,6 +44,7 @@
     {
       "id": "00",
       "seccion": "vip",
+      "area": "VIP 01",
       "asientos": 6,
       "x": 1470,
       "y": 239,
@@ -52,6 +54,7 @@
     {
       "id": "05",
       "seccion": "vip",
+      "area": "VIP 01",
       "asientos": 6,
       "x": 582,
       "y": 333,
@@ -61,6 +64,7 @@
     {
       "id": "04",
       "seccion": "vip",
+      "area": "VIP 01",
       "asientos": 6,
       "x": 748,
       "y": 333,
@@ -70,6 +74,7 @@
     {
       "id": "03",
       "seccion": "vip",
+      "area": "VIP 01",
       "asientos": 6,
       "x": 917,
       "y": 333,
@@ -79,6 +84,7 @@
     {
       "id": "02",
       "seccion": "vip",
+      "area": "VIP 01",
       "asientos": 6,
       "x": 1085,
       "y": 333,
@@ -88,6 +94,7 @@
     {
       "id": "01",
       "seccion": "vip",
+      "area": "VIP 01",
       "asientos": 6,
       "x": 1252,
       "y": 333,
@@ -97,6 +104,7 @@
     {
       "id": "13",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 582,
       "y": 573,
@@ -106,6 +114,7 @@
     {
       "id": "12",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 748,
       "y": 573,
@@ -115,6 +124,7 @@
     {
       "id": "11",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 917,
       "y": 573,
@@ -124,6 +134,7 @@
     {
       "id": "10",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 1085,
       "y": 573,
@@ -133,6 +144,7 @@
     {
       "id": "09",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 1252,
       "y": 573,
@@ -142,6 +154,7 @@
     {
       "id": "20",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 582,
       "y": 732,
@@ -151,6 +164,7 @@
     {
       "id": "19",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 748,
       "y": 732,
@@ -160,6 +174,7 @@
     {
       "id": "18",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 917,
       "y": 732,
@@ -169,6 +184,7 @@
     {
       "id": "17",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 1085,
       "y": 732,
@@ -178,6 +194,7 @@
     {
       "id": "16",
       "seccion": "vip",
+      "area": "VIP 02",
       "asientos": 4,
       "x": 1252,
       "y": 732,
@@ -187,6 +204,7 @@
     {
       "id": "28",
       "seccion": "vip",
+      "area": "VIP 03",
       "asientos": 2,
       "x": 566,
       "y": 912,
@@ -196,6 +214,7 @@
     {
       "id": "27",
       "seccion": "vip",
+      "area": "VIP 03",
       "asientos": 2,
       "x": 706,
       "y": 912,
@@ -205,6 +224,7 @@
     {
       "id": "26",
       "seccion": "vip",
+      "area": "VIP 03",
       "asientos": 2,
       "x": 849,
       "y": 912,
@@ -214,6 +234,7 @@
     {
       "id": "25",
       "seccion": "vip",
+      "area": "VIP 03",
       "asientos": 2,
       "x": 989,
       "y": 912,
@@ -223,6 +244,7 @@
     {
       "id": "24",
       "seccion": "vip",
+      "area": "VIP 03",
       "asientos": 2,
       "x": 1132,
       "y": 912,
@@ -232,6 +254,7 @@
     {
       "id": "23",
       "seccion": "vip",
+      "area": "VIP 03",
       "asientos": 2,
       "x": 1274,
       "y": 912,
@@ -241,6 +264,7 @@
     {
       "id": "74",
       "seccion": "vip",
+      "area": "VIP 04",
       "asientos": 3,
       "x": 1802,
       "y": 86,
@@ -250,6 +274,7 @@
     {
       "id": "75",
       "seccion": "vip",
+      "area": "VIP 04",
       "asientos": 3,
       "x": 1802,
       "y": 221,
@@ -259,6 +284,7 @@
     {
       "id": "76",
       "seccion": "vip",
+      "area": "VIP 04",
       "asientos": 3,
       "x": 1802,
       "y": 356,
@@ -268,6 +294,7 @@
     {
       "id": "77",
       "seccion": "vip",
+      "area": "VIP 04",
       "asientos": 3,
       "x": 1802,
       "y": 492,
@@ -277,6 +304,7 @@
     {
       "id": "78",
       "seccion": "vip",
+      "area": "VIP 04",
       "asientos": 3,
       "x": 1802,
       "y": 627,
@@ -286,6 +314,7 @@
     {
       "id": "79",
       "seccion": "vip",
+      "area": "VIP 04",
       "asientos": 3,
       "x": 1802,
       "y": 764,
@@ -295,6 +324,7 @@
     {
       "id": "108",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 71,
       "y": 235,
@@ -304,6 +334,7 @@
     {
       "id": "107",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 71,
       "y": 353,
@@ -313,6 +344,7 @@
     {
       "id": "106",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 71,
       "y": 473,
@@ -322,6 +354,7 @@
     {
       "id": "105",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 71,
       "y": 594,
@@ -331,6 +364,7 @@
     {
       "id": "104",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 71,
       "y": 714,
@@ -340,6 +374,7 @@
     {
       "id": "103",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 71,
       "y": 834,
@@ -349,6 +384,7 @@
     {
       "id": "90",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 639,
       "y": 1585,
@@ -358,6 +394,7 @@
     {
       "id": "89",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 781,
       "y": 1585,
@@ -367,6 +404,7 @@
     {
       "id": "88",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 922,
       "y": 1585,
@@ -376,6 +414,7 @@
     {
       "id": "87",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 1065,
       "y": 1585,
@@ -385,6 +424,7 @@
     {
       "id": "86",
       "seccion": "vip",
+      "area": "VIP 05",
       "asientos": 2,
       "x": 1208,
       "y": 1585,
@@ -394,6 +434,7 @@
     {
       "id": "68",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 225,
       "y": 368,
@@ -403,6 +444,7 @@
     {
       "id": "67",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 225,
       "y": 487,
@@ -412,6 +454,7 @@
     {
       "id": "66",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 225,
       "y": 607,
@@ -421,6 +464,7 @@
     {
       "id": "65",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 225,
       "y": 727,
@@ -430,6 +474,7 @@
     {
       "id": "64",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 225,
       "y": 846,
@@ -439,6 +484,7 @@
     {
       "id": "63",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 225,
       "y": 965,
@@ -448,6 +494,7 @@
     {
       "id": "73",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 348,
       "y": 428,
@@ -457,6 +504,7 @@
     {
       "id": "72",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 348,
       "y": 547,
@@ -466,6 +514,7 @@
     {
       "id": "71",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 348,
       "y": 667,
@@ -475,6 +524,7 @@
     {
       "id": "70",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 348,
       "y": 787,
@@ -484,6 +534,7 @@
     {
       "id": "69",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 348,
       "y": 905,
@@ -493,6 +544,7 @@
     {
       "id": "08",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1477,
       "y": 420,
@@ -502,6 +554,7 @@
     {
       "id": "07",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1646,
       "y": 420,
@@ -511,6 +564,7 @@
     {
       "id": "15",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1477,
       "y": 584,
@@ -520,6 +574,7 @@
     {
       "id": "14",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1646,
       "y": 584,
@@ -529,6 +584,7 @@
     {
       "id": "22",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1477,
       "y": 744,
@@ -538,6 +594,7 @@
     {
       "id": "21",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1646,
       "y": 744,
@@ -547,6 +604,7 @@
     {
       "id": "30",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1477,
       "y": 905,
@@ -556,6 +614,7 @@
     {
       "id": "29",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1646,
       "y": 905,
@@ -565,6 +624,7 @@
     {
       "id": "95",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 717,
       "y": 1733,
@@ -574,6 +634,7 @@
     {
       "id": "94",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 860,
       "y": 1733,
@@ -583,6 +644,7 @@
     {
       "id": "93",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1000,
       "y": 1733,
@@ -592,6 +654,7 @@
     {
       "id": "92",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1142,
       "y": 1733,
@@ -601,6 +664,7 @@
     {
       "id": "101",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 717,
       "y": 1852,
@@ -610,6 +674,7 @@
     {
       "id": "100",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 860,
       "y": 1852,
@@ -619,6 +684,7 @@
     {
       "id": "99",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1000,
       "y": 1852,
@@ -628,6 +694,7 @@
     {
       "id": "98",
       "seccion": "general-3",
+      "area": "106",
       "asientos": 3,
       "x": 1142,
       "y": 1852,
@@ -637,6 +704,7 @@
     {
       "id": "36",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 566,
       "y": 1033,
@@ -646,6 +714,7 @@
     {
       "id": "35",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 708,
       "y": 1033,
@@ -655,6 +724,7 @@
     {
       "id": "34",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 849,
       "y": 1033,
@@ -664,6 +734,7 @@
     {
       "id": "33",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 992,
       "y": 1033,
@@ -673,6 +744,7 @@
     {
       "id": "32",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1134,
       "y": 1033,
@@ -682,6 +754,7 @@
     {
       "id": "31",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1275,
       "y": 1033,
@@ -691,6 +764,7 @@
     {
       "id": "42",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 566,
       "y": 1121,
@@ -700,6 +774,7 @@
     {
       "id": "41",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 708,
       "y": 1121,
@@ -709,6 +784,7 @@
     {
       "id": "40",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 849,
       "y": 1121,
@@ -718,6 +794,7 @@
     {
       "id": "39",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 992,
       "y": 1121,
@@ -727,6 +804,7 @@
     {
       "id": "38",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1134,
       "y": 1121,
@@ -736,6 +814,7 @@
     {
       "id": "37",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1275,
       "y": 1121,
@@ -745,6 +824,7 @@
     {
       "id": "48",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 566,
       "y": 1208,
@@ -754,6 +834,7 @@
     {
       "id": "47",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 708,
       "y": 1208,
@@ -763,6 +844,7 @@
     {
       "id": "46",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 849,
       "y": 1208,
@@ -772,6 +854,7 @@
     {
       "id": "45",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 992,
       "y": 1208,
@@ -781,6 +864,7 @@
     {
       "id": "44",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1134,
       "y": 1208,
@@ -790,6 +874,7 @@
     {
       "id": "43",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1275,
       "y": 1208,
@@ -799,6 +884,7 @@
     {
       "id": "52",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 566,
       "y": 1295,
@@ -808,6 +894,7 @@
     {
       "id": "51",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 708,
       "y": 1295,
@@ -817,6 +904,7 @@
     {
       "id": "50",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1134,
       "y": 1295,
@@ -826,6 +914,7 @@
     {
       "id": "49",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1275,
       "y": 1295,
@@ -835,6 +924,7 @@
     {
       "id": "57",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 566,
       "y": 1384,
@@ -844,6 +934,7 @@
     {
       "id": "56",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 708,
       "y": 1384,
@@ -853,6 +944,7 @@
     {
       "id": "55",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 992,
       "y": 1384,
@@ -862,6 +954,7 @@
     {
       "id": "54",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1134,
       "y": 1384,
@@ -871,6 +964,7 @@
     {
       "id": "53",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1275,
       "y": 1384,
@@ -880,6 +974,7 @@
     {
       "id": "62",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 566,
       "y": 1471,
@@ -889,6 +984,7 @@
     {
       "id": "61",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 708,
       "y": 1471,
@@ -898,6 +994,7 @@
     {
       "id": "60",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 992,
       "y": 1471,
@@ -907,6 +1004,7 @@
     {
       "id": "59",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1134,
       "y": 1471,
@@ -916,6 +1014,7 @@
     {
       "id": "58",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1275,
       "y": 1471,
@@ -925,6 +1024,7 @@
     {
       "id": "80",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1938,
       "y": 86,
@@ -934,6 +1034,7 @@
     {
       "id": "81",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1938,
       "y": 221,
@@ -943,6 +1044,7 @@
     {
       "id": "82",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1938,
       "y": 356,
@@ -952,6 +1054,7 @@
     {
       "id": "83",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1938,
       "y": 492,
@@ -961,6 +1064,7 @@
     {
       "id": "84",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1938,
       "y": 627,
@@ -970,6 +1074,7 @@
     {
       "id": "85",
       "seccion": "general-2",
+      "area": "107",
       "asientos": 2,
       "x": 1938,
       "y": 764,
@@ -979,6 +1084,7 @@
     {
       "id": "96",
       "seccion": "general-2",
+      "area": "108",
       "asientos": 2,
       "x": 566,
       "y": 1764,
@@ -988,6 +1094,7 @@
     {
       "id": "102",
       "seccion": "general-2",
+      "area": "108",
       "asientos": 2,
       "x": 566,
       "y": 1852,
@@ -997,6 +1104,7 @@
     {
       "id": "91",
       "seccion": "general-2",
+      "area": "108",
       "asientos": 2,
       "x": 1275,
       "y": 1764,
@@ -1006,6 +1114,7 @@
     {
       "id": "97",
       "seccion": "general-2",
+      "area": "108",
       "asientos": 2,
       "x": 1275,
       "y": 1852,

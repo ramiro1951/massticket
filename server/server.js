@@ -371,7 +371,8 @@ function ocupadosZona(db, eventoId, zonaId) {
       const enMesas = Array.isArray(v.mesas)
         ? v.mesas.filter((m) => m.zonaId === zonaId).reduce((t, m) => t + m.asientos, 0)
         : 0;
-      return s + enLineas + enMesas;
+      const enAsientos = Array.isArray(v.asientos) ? v.asientos.filter((a) => a.zonaId === zonaId).length : 0;
+      return s + enLineas + enMesas + enAsientos;
     }, 0);
   return enBoletos + enPendientes;
 }
@@ -380,6 +381,9 @@ function ocupadosZona(db, eventoId, zonaId) {
 // Cada lugar con mesas tiene un archivo en public/mapas/<id>.json con sus
 // secciones y mesas (número, sección, asientos y posición en el plano).
 // Las mesas se venden COMPLETAS: una mesa de 4 son 4 boletos, una de 2 son 2.
+// Excepción: las mesas que el organizador pone "por asiento" en el evento
+// (evento.porAsiento, lista de números de mesa) se venden asiento por asiento
+// (mesa compartida). Cada mesa puede traer en el mapa su "area" (VIP 01, 106...).
 const cacheMapas = new Map();
 function cargarMapa(id) {
   const limpio = String(id || "");
@@ -426,12 +430,86 @@ function estadoMesas(db, evento) {
   }
   const ahora = Date.now();
   for (const v of db.ventas) {
-    if (v.eventoId !== evento.id || v.estado !== "pendiente" || !Array.isArray(v.mesas)) continue;
+    if (v.eventoId !== evento.id || v.estado !== "pendiente") continue;
     const creado = v.creado ? new Date(v.creado).getTime() : 0;
     if (ahora - creado >= VENTANA_RESERVA_MS) continue;
-    for (const m of v.mesas) if (!estado.has(String(m.mesaId))) estado.set(String(m.mesaId), "apartada");
+    const ids = [...(Array.isArray(v.mesas) ? v.mesas : []), ...(Array.isArray(v.asientos) ? v.asientos : [])].map((m) => String(m.mesaId));
+    for (const id of ids) if (!estado.has(id)) estado.set(id, "apartada");
   }
   return estado;
+}
+// Mesas del evento que se venden por asiento (mesa compartida).
+function mesasPorAsiento(evento) {
+  return new Set((Array.isArray(evento?.porAsiento) ? evento.porAsiento : []).map(String));
+}
+// Asientos no disponibles de cada mesa: Map mesaId -> Map(número -> "vendido"|"apartado").
+// Una mesa vendida completa (boletos sin número de asiento, o compra pendiente
+// de la mesa completa) ocupa todos sus asientos.
+function estadoAsientos(db, evento, mapa) {
+  const porMesa = new Map();
+  const total = new Map(mapa.mesas.map((m) => [String(m.id), m.asientos]));
+  const marcar = (mesaId, n, estado) => {
+    const id = String(mesaId);
+    if (!porMesa.has(id)) porMesa.set(id, new Map());
+    const m = porMesa.get(id);
+    if (!m.has(n) || estado === "vendido") m.set(n, estado);
+  };
+  const toda = (mesaId, estado) => { for (let n = 1; n <= (total.get(String(mesaId)) || 0); n++) marcar(mesaId, n, estado); };
+  for (const b of db.boletos) {
+    if (b.eventoId !== evento.id || !b.mesaId) continue;
+    if (b.asiento) marcar(b.mesaId, Number(b.asiento), "vendido");
+    else toda(b.mesaId, "vendido");
+  }
+  const ahora = Date.now();
+  for (const v of db.ventas) {
+    if (v.eventoId !== evento.id || v.estado !== "pendiente") continue;
+    const creado = v.creado ? new Date(v.creado).getTime() : 0;
+    if (ahora - creado >= VENTANA_RESERVA_MS) continue;
+    for (const m of Array.isArray(v.mesas) ? v.mesas : []) toda(m.mesaId, "apartado");
+    for (const a of Array.isArray(v.asientos) ? v.asientos : []) marcar(a.mesaId, Number(a.asiento), "apartado");
+  }
+  return porMesa;
+}
+// Revisa una lista de asientos pedidos {mesa, asiento} de un evento con mapa.
+// Devuelve { asientos: [...] } listos para guardar en la venta, o { error, status }.
+const MAX_ASIENTOS_POR_COMPRA = 10;
+function revisarAsientosPedidos(db, evento, mapa, pedidos, { max = MAX_ASIENTOS_POR_COMPRA } = {}) {
+  const lista = [];
+  const vistos = new Set();
+  for (const p of Array.isArray(pedidos) ? pedidos : []) {
+    const mesaId = String(p?.mesa ?? p?.mesaId ?? "");
+    const asiento = parseInt(p?.asiento);
+    const clave = mesaId + ":" + asiento;
+    if (!mesaId || !Number.isInteger(asiento) || vistos.has(clave)) continue;
+    vistos.add(clave);
+    lista.push({ mesaId, asiento });
+  }
+  if (!lista.length) return { asientos: [] };
+  if (lista.length > max) return { status: 400, error: `Máximo ${max} asientos por compra.` };
+  const porAsiento = mesasPorAsiento(evento);
+  const ocupados = estadoAsientos(db, evento, mapa);
+  const zonas = zonasDe(evento);
+  const salida = [];
+  for (const { mesaId, asiento } of lista) {
+    const mesa = mapa.mesas.find((m) => String(m.id) === mesaId);
+    if (!mesa) return { status: 400, error: `La mesa ${mesaId} no existe.` };
+    if (!porAsiento.has(mesaId)) return { status: 409, error: `La mesa ${mesaId} se vende completa, no por asiento.` };
+    if (asiento < 1 || asiento > mesa.asientos) return { status: 400, error: `La mesa ${mesaId} no tiene asiento ${asiento}.` };
+    if (ocupados.get(mesaId)?.has(asiento)) {
+      return { status: 409, error: `El asiento ${asiento} de la mesa ${mesaId} ya no está disponible. Elige otro.` };
+    }
+    const z = zonas.find((x) => x.id === mesa.seccion);
+    salida.push({
+      mesaId, asiento, zonaId: mesa.seccion, zonaNombre: z?.nombre || mesa.seccion,
+      ...(mesa.area ? { area: mesa.area } : {}), precioPersona: z ? precioPorBoleto(z) : 0,
+    });
+  }
+  salida.sort((a, b) => (a.mesaId === b.mesaId ? a.asiento - b.asiento : 0));
+  return { asientos: salida };
+}
+// Texto corto de dónde se sienta alguien: "VIP 02 · Mesa 11 · Asiento 3".
+function lugarDeBoleto(b) {
+  return [b.area || b.zona || "", b.mesa ? "Mesa " + b.mesa : "", b.asiento ? "Asiento " + b.asiento : ""].filter(Boolean).join("  ·  ");
 }
 // Tipos de pago de Mercado Pago que NO se ofrecen: los que se aprueban horas
 // o días después de elegirlos (efectivo en tienda como OXXO, pago en banco y
@@ -465,18 +543,26 @@ function conOcupacion(db, e) {
   const mapa = mapaDe(e);
   if (mapa) {
     const estado = estadoMesas(db, e);
+    const porAsiento = mesasPorAsiento(e);
+    const asientos = porAsiento.size ? estadoAsientos(db, e, mapa) : new Map();
     salida.mesas = mapa.mesas.map((m) => {
       const z = zonasDe(e).find((x) => x.id === m.seccion);
       const pp = z ? precioPorBoleto(z) : 0;
-      return {
+      const base = {
         id: m.id,
         seccion: m.seccion,
+        ...(m.area ? { area: m.area } : {}),
         asientos: m.asientos,
         precioPersona: pp,
         precioMesa: Math.round(pp * m.asientos * 100) / 100,
-        ocupada: estado.has(m.id),
-        estado: estado.get(m.id) || "libre",
       };
+      if (porAsiento.has(String(m.id))) {
+        // Por asiento: solo se dice qué números están tomados (no quién los tiene).
+        const tomados = [...(asientos.get(String(m.id))?.keys() || [])].sort((a, b) => a - b);
+        return { ...base, porAsiento: true, asientosOcupados: tomados, libres: m.asientos - tomados.length,
+          ocupada: tomados.length >= m.asientos, estado: tomados.length >= m.asientos ? "vendida" : "libre" };
+      }
+      return { ...base, ocupada: estado.has(m.id), estado: estado.get(m.id) || "libre" };
     });
   }
   return salida;
@@ -612,7 +698,10 @@ async function generarPDFBoletos({ evento, boletos }) {
 
     doc.fontSize(13).fillColor("#111").text(`Boleto de: ${b.nombre}`, { align: "center" });
     doc.fontSize(11).fillColor("#555").text(`Folio: ${b.folio}`, { align: "center" });
-    if (b.mesa) doc.fontSize(15).fillColor("#111").text(`Mesa ${b.mesa}${b.zona ? "  ·  " + b.zona : ""}`, { align: "center" });
+    if (b.mesa) {
+      doc.fontSize(15).fillColor("#111").text(lugarDeBoleto(b), { align: "center" });
+      if (b.asiento) doc.fontSize(10).fillColor("#555").text("Mesa compartida", { align: "center" });
+    }
     else if (b.zona) doc.fontSize(12).fillColor("#111").text(`Zona: ${b.zona}`, { align: "center" });
     doc.moveDown(0.8);
 
@@ -644,9 +733,17 @@ async function enviarBoletosPorEmail({ evento, nombre, contacto, boletos }) {
   try {
     const pdf = await generarPDFBoletos({ evento, boletos });
     const cantidad = boletos.length;
-    const mesasTexto = [...new Set(boletos.filter((b) => b.mesa).map((b) => b.mesa))];
+    // Mesas completas: "Mesa 11"; asientos sueltos: "Mesa 11, asientos 1 y 3 (mesa compartida)".
+    const porMesa = new Map();
+    for (const b of boletos.filter((x) => x.mesa)) {
+      if (!porMesa.has(b.mesa)) porMesa.set(b.mesa, { area: b.area || "", asientos: [] });
+      if (b.asiento) porMesa.get(b.mesa).asientos.push(b.asiento);
+    }
+    const mesasTexto = [...porMesa].map(([mesa, i]) =>
+      `${i.area ? i.area + " · " : ""}Mesa ${mesa}` +
+      (i.asientos.length ? `, asiento${i.asientos.length > 1 ? "s" : ""} ${i.asientos.sort((a, b) => a - b).join(", ")} (mesa compartida)` : ""));
     const lineaMesas = mesasTexto.length
-      ? `<p><strong>Mesa${mesasTexto.length > 1 ? "s" : ""}: ${escaparHtml(mesasTexto.join(", "))}</strong></p>`
+      ? `<p><strong>${escaparHtml(mesasTexto.join(" · "))}</strong></p>`
       : "";
     // Resend no lanza un error cuando falla el envío: lo devuelve en "error".
     const respuesta = await resend.emails.send({
@@ -772,7 +869,7 @@ app.get("/api/mapas", seguro(async (req, res) => {
 
 // -------- Crear evento (admin) --------
 app.post("/api/eventos", requiereAdmin, seguro(async (req, res) => {
-  const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto } = req.body || {};
+  const { nombre, fecha, lugar, precio, cupo, imagen, zonas, mapaId, oculto, modoVenta } = req.body || {};
   if (typeof imagen === "string" && !imagenValida(imagen)) return res.status(400).json({ error: "La imagen del cartel no es válida." });
   await conCandado(async () => {
     const db = await leerDB();
@@ -793,6 +890,8 @@ app.post("/api/eventos", requiereAdmin, seguro(async (req, res) => {
     };
     if (mapa) {
       aplicarMapaAEvento(nuevo, mapa, zonasDeMapa(mapa, zonas, []));
+      // Modo de venta inicial: todas las mesas completas (normal) o todas por asiento.
+      nuevo.porAsiento = modoVenta === "asiento" ? mapa.mesas.map((m) => String(m.id)) : [];
     } else if (zs.length) {
       // Con zonas, el cupo total y el precio "desde" salen de las zonas.
       nuevo.zonas = zs;
@@ -828,6 +927,9 @@ app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
       evento.fecha = fecha ?? evento.fecha;
       evento.lugar = (lugar ?? evento.lugar ?? "").trim();
       aplicarMapaAEvento(evento, mapa, zonasDeMapa(mapa, zonas, zonasDe(evento)));
+      // Si cambió el mapa, solo se quedan "por asiento" las mesas que existen en el nuevo.
+      const idsMapa = new Set(mapa.mesas.map((m) => String(m.id)));
+      evento.porAsiento = [...mesasPorAsiento(evento)].filter((id) => idsMapa.has(id));
       if (typeof imagen === "string" && imagen) evento.imagen = imagen;
       await escribirDB(db);
       return res.json(evento);
@@ -836,6 +938,7 @@ app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
       // Se le quitó el mapa a un evento sin boletos: vuelve a precio único.
       delete evento.mapaId;
       delete evento.zonas;
+      delete evento.porAsiento;
     }
 
     // Zonas: se revisa antes de cambiar nada para no dejar el evento a medias.
@@ -877,6 +980,52 @@ app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
     if (typeof imagen === "string" && imagen) evento.imagen = imagen;
     await escribirDB(db);
     res.json(evento);
+  });
+}));
+
+// -------- Mesas por asiento / completas (admin) --------
+// Cambia cómo se venden unas mesas de un evento con mapa. Reglas:
+//  - Una mesa vendida o apartada COMPLETA no puede pasar a "por asiento".
+//  - Una mesa con algún asiento vendido o apartado no puede volver a "completa".
+// Las mesas que no se pueden cambiar se reportan en "omitidas" y las demás sí cambian.
+app.put("/api/eventos/:id/por-asiento", requiereAdmin, seguro(async (req, res) => {
+  const pedidas = Array.isArray(req.body?.mesas) ? [...new Set(req.body.mesas.map(String))] : [];
+  const aAsiento = req.body?.porAsiento === true;
+  if (!pedidas.length) return res.status(400).json({ error: "Elige al menos una mesa." });
+  await conCandado(async () => {
+    const db = await leerDB();
+    const evento = db.eventos.find((e) => e.id === req.params.id);
+    if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
+    const mapa = mapaDe(evento);
+    if (!mapa) return res.status(400).json({ error: "Este evento no tiene mapa de mesas." });
+    const actuales = mesasPorAsiento(evento);
+    const ahora = Date.now();
+    const vigente = (v) => v.eventoId === evento.id && v.estado === "pendiente" && ahora - (v.creado ? new Date(v.creado).getTime() : 0) < VENTANA_RESERVA_MS;
+    const completas = new Set(), sueltas = new Set();
+    for (const b of db.boletos) {
+      if (b.eventoId !== evento.id || !b.mesaId) continue;
+      (b.asiento ? sueltas : completas).add(String(b.mesaId));
+    }
+    for (const v of db.ventas) {
+      if (!vigente(v)) continue;
+      for (const m of Array.isArray(v.mesas) ? v.mesas : []) completas.add(String(m.mesaId));
+      for (const a of Array.isArray(v.asientos) ? v.asientos : []) sueltas.add(String(a.mesaId));
+    }
+    const omitidas = [];
+    for (const id of pedidas) {
+      if (!mapa.mesas.some((m) => String(m.id) === id)) { omitidas.push({ mesa: id, motivo: "no existe" }); continue; }
+      if (aAsiento && !actuales.has(id)) {
+        if (completas.has(id)) omitidas.push({ mesa: id, motivo: "ya se vendió o apartó completa" });
+        else actuales.add(id);
+      } else if (!aAsiento && actuales.has(id)) {
+        if (sueltas.has(id)) omitidas.push({ mesa: id, motivo: "ya tiene asientos vendidos o apartados" });
+        else actuales.delete(id);
+      }
+    }
+    const orden = new Map(mapa.mesas.map((m, i) => [String(m.id), i]));
+    evento.porAsiento = [...actuales].sort((a, b) => orden.get(a) - orden.get(b));
+    await escribirDB(db);
+    res.json({ porAsiento: evento.porAsiento, omitidas });
   });
 }));
 
@@ -970,33 +1119,62 @@ app.post("/api/comprar", limitarCompras, seguro(async (req, res) => {
       const mapa = mapaDe(evento);
       let lineas = null;
       let mesasVenta = null;
+      let asientosVenta = null;
       let totalBoletos = 0;
       if (mapa) {
-        // Evento con mapa de mesas: se pide una lista de mesas, cada una completa.
+        // Evento con mapa de mesas: mesas completas y/o asientos sueltos de las
+        // mesas que el organizador puso "por asiento" (mesa compartida).
         const pedidas = Array.isArray(req.body?.mesas) ? [...new Set(req.body.mesas.map(String))] : [];
-        if (!pedidas.length) { falla = { status: 400, error: "Elige al menos una mesa." }; return; }
+        const revision = revisarAsientosPedidos(db, evento, mapa, req.body?.asientos);
+        if (revision.error) { falla = { status: revision.status, error: revision.error }; return; }
+        if (!pedidas.length && !revision.asientos.length) { falla = { status: 400, error: "Elige al menos una mesa o un asiento." }; return; }
         if (pedidas.length > 8) { falla = { status: 400, error: "Máximo 8 mesas por compra." }; return; }
         const estado = estadoMesas(db, evento);
+        const porAsiento = mesasPorAsiento(evento);
         mesasVenta = [];
         for (const id of pedidas) {
           const mesa = mapa.mesas.find((m) => m.id === id);
           if (!mesa) { falla = { status: 400, error: `La mesa ${id} no existe.` }; return; }
+          if (porAsiento.has(id)) {
+            falla = { status: 409, error: `La mesa ${id} se vende por asiento: elige tus asientos.` };
+            return;
+          }
           if (estado.has(id)) {
             falla = { status: 409, error: `La mesa ${id} ya no está disponible. Elige otra.` };
             return;
           }
           const z = zonas.find((x) => x.id === mesa.seccion);
           const pp = z ? precioPorBoleto(z) : 0;
-          mesasVenta.push({ mesaId: id, zonaId: mesa.seccion, zonaNombre: z?.nombre || mesa.seccion, asientos: mesa.asientos, precioPersona: pp });
+          mesasVenta.push({ mesaId: id, zonaId: mesa.seccion, zonaNombre: z?.nombre || mesa.seccion, ...(mesa.area ? { area: mesa.area } : {}), asientos: mesa.asientos, precioPersona: pp });
           totalBoletos += mesa.asientos;
           items.push({
             id: `mesa-${id}`,
-            title: `${evento.nombre} — Mesa ${id} (${z?.nombre || mesa.seccion}, ${mesa.asientos} personas)`.slice(0, 250),
+            title: `${evento.nombre} — Mesa ${id} (${mesa.area || z?.nombre || mesa.seccion}, ${mesa.asientos} personas)`.slice(0, 250),
             quantity: 1,
             unit_price: Math.round(pp * mesa.asientos * 100) / 100,
             currency_id: "MXN",
           });
         }
+        // Asientos sueltos: una línea de Mercado Pago por mesa, con sus números.
+        asientosVenta = revision.asientos;
+        totalBoletos += asientosVenta.length;
+        const porMesa = new Map();
+        for (const a of asientosVenta) {
+          if (!porMesa.has(a.mesaId)) porMesa.set(a.mesaId, []);
+          porMesa.get(a.mesaId).push(a);
+        }
+        for (const [mesaId, lista] of porMesa) {
+          const a0 = lista[0];
+          items.push({
+            id: `asientos-${mesaId}`,
+            title: `${evento.nombre} — Mesa ${mesaId} (${a0.area || a0.zonaNombre}), asiento${lista.length > 1 ? "s" : ""} ${lista.map((a) => a.asiento).join(", ")} · mesa compartida`.slice(0, 250),
+            quantity: lista.length,
+            unit_price: a0.precioPersona,
+            currency_id: "MXN",
+          });
+        }
+        if (!mesasVenta.length) mesasVenta = null;
+        if (!asientosVenta.length) asientosVenta = null;
       } else if (zonas.length) {
         lineas = [];
         for (const p of pedidoZonas) {
@@ -1052,7 +1230,9 @@ app.post("/api/comprar", limitarCompras, seguro(async (req, res) => {
         contacto,
         telefono,
         cantidad: totalBoletos,
-        ...(mesasVenta ? { mesas: mesasVenta } : lineas ? { lineas } : { precioUnit: Number(evento.precio) || 0 }),
+        ...(mesasVenta || asientosVenta
+          ? { ...(mesasVenta ? { mesas: mesasVenta } : {}), ...(asientosVenta ? { asientos: asientosVenta } : {}) }
+          : lineas ? { lineas } : { precioUnit: Number(evento.precio) || 0 }),
         preferenceId: null,
         estado: "pendiente",
         creado: new Date().toISOString(),
@@ -1163,7 +1343,8 @@ async function aplicarPagoAprobado(ventaId, pago) {
     // Compra con zonas: cada línea trae su zona y cuántos boletos incluye cada
     // compra (palco de 2 o de 4 = 2 o 4 boletos, cada uno con su QR).
     const conMesas = Array.isArray(venta.mesas) && venta.mesas.length;
-    const lineas = conMesas
+    const conAsientos = Array.isArray(venta.asientos) && venta.asientos.length;
+    const lineas = conMesas || conAsientos
       ? []
       : Array.isArray(venta.lineas) && venta.lineas.length
         ? venta.lineas
@@ -1214,6 +1395,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
             precio: m.precioPersona,
             zonaId: m.zonaId,
             zona: m.zonaNombre,
+            ...(m.area ? { area: m.area } : {}),
             mesa: m.mesaId,
             mesaId: m.mesaId,
             estado: "valido",
@@ -1223,6 +1405,38 @@ async function aplicarPagoAprobado(ventaId, pago) {
           db.boletos.push(b);
           nuevos.push(b);
         }
+      }
+    }
+    if (conAsientos) {
+      // Asientos sueltos (mesa compartida): un boleto por asiento, con su número.
+      // Igual que con las mesas: si el asiento ya se le dio a otra persona por
+      // una demora larga, se emite el boleto (el pago ya está hecho) y queda el
+      // aviso en el Panel para resolverlo a mano.
+      const otros = db.boletos.filter((b) => b.eventoId === venta.eventoId && b.mesaId && b.ventaId !== venta.id);
+      for (const a of venta.asientos) {
+        const choca = otros.some((b) => String(b.mesaId) === String(a.mesaId) && (!b.asiento || Number(b.asiento) === Number(a.asiento)));
+        if (choca) venta.conflictoMesas = [...(venta.conflictoMesas || []), `${a.mesaId} (asiento ${a.asiento})`];
+        const b = {
+          folio: folioNuevo(db.boletos.length + 1),
+          eventoId: venta.eventoId,
+          ventaId: venta.id,
+          nombre: venta.nombre,
+          contacto: venta.contacto,
+          telefono: venta.telefono || "",
+          metodo: "Mercado Pago",
+          precio: a.precioPersona,
+          zonaId: a.zonaId,
+          zona: a.zonaNombre,
+          ...(a.area ? { area: a.area } : {}),
+          mesa: a.mesaId,
+          mesaId: a.mesaId,
+          asiento: a.asiento,
+          estado: "valido",
+          creado: new Date().toISOString(),
+          usadoEn: null,
+        };
+        db.boletos.push(b);
+        nuevos.push(b);
       }
     }
     await escribirDB(db);
@@ -1390,21 +1604,31 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
     // "plan" = un elemento por boleto que se va a emitir.
     const plan = [];
     const mapa = mapaDe(evento);
+    let asientosManual = [];
     if (mapa) {
-      // Evento con mesas: se eligen mesas completas, un boleto por asiento.
-      if (!mesasPedidas.length) return res.status(400).json({ error: "Elige al menos una mesa." });
+      // Evento con mesas: mesas completas (un boleto por asiento) y/o asientos
+      // sueltos de las mesas que se venden por asiento.
+      const revision = revisarAsientosPedidos(db, evento, mapa, req.body?.asientos, { max: 100 });
+      if (revision.error) return res.status(revision.status).json({ error: revision.error });
+      asientosManual = revision.asientos;
+      if (!mesasPedidas.length && !asientosManual.length) return res.status(400).json({ error: "Elige al menos una mesa o un asiento." });
       const estado = estadoMesas(db, evento);
+      const porAsiento = mesasPorAsiento(evento);
       for (const id of mesasPedidas) {
         const mesa = mapa.mesas.find((m) => m.id === id);
         if (!mesa) return res.status(400).json({ error: `La mesa ${id} no existe.` });
+        if (porAsiento.has(id)) return res.status(409).json({ error: `La mesa ${id} se vende por asiento: elige los asientos.` });
         if (estado.has(id)) {
           return res.status(409).json({ error: `La mesa ${id} ya no está disponible (${estado.get(id)}).` });
         }
         const z = zonasDe(evento).find((x) => x.id === mesa.seccion);
         const pp = z ? precioPorBoleto(z) : 0;
         for (let i = 0; i < mesa.asientos; i++) {
-          plan.push({ zonaId: mesa.seccion, zona: z?.nombre || mesa.seccion, mesa: id, base: pp });
+          plan.push({ zonaId: mesa.seccion, zona: z?.nombre || mesa.seccion, area: mesa.area, mesa: id, base: pp });
         }
+      }
+      for (const a of asientosManual) {
+        plan.push({ zonaId: a.zonaId, zona: a.zonaNombre, area: a.area, mesa: a.mesaId, asiento: a.asiento, base: a.precioPersona });
       }
     } else {
       // Si el evento tiene zonas, hay que elegir una; "cantidad" son boletos
@@ -1440,7 +1664,8 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
       telefono,
       cantidad: plan.length,
       precioUnit: precioDe(plan[0]),
-      ...(mapa ? { mesas: [...new Set(plan.map((p) => p.mesa))].map((m) => ({ mesaId: m })) } : {}),
+      ...(mapa ? { mesas: [...new Set(plan.filter((p) => !p.asiento).map((p) => p.mesa))].map((m) => ({ mesaId: m })) } : {}),
+      ...(asientosManual.length ? { asientos: asientosManual.map((a) => ({ mesaId: a.mesaId, asiento: a.asiento })) } : {}),
       estado: "pagado",
       manual: true,
       metodo,
@@ -1458,7 +1683,9 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
         metodo,
         precio: precioDe(p),
         ...(p.zonaId ? { zonaId: p.zonaId, zona: p.zona } : {}),
+        ...(p.area ? { area: p.area } : {}),
         ...(p.mesa ? { mesa: p.mesa, mesaId: p.mesa } : {}),
+        ...(p.asiento ? { asiento: p.asiento } : {}),
         estado: "valido",
         creado: new Date().toISOString(),
         usadoEn: null,
@@ -1603,12 +1830,12 @@ app.post("/api/validar", requiereAdmin, seguro(async (req, res) => {
       });
     }
     if (b.estado === "usado") {
-      return res.json({ resultado: "repetido", nombre: b.nombre, usadoEn: b.usadoEn, zona: b.zona || "", mesa: b.mesa || "" });
+      return res.json({ resultado: "repetido", nombre: b.nombre, usadoEn: b.usadoEn, zona: b.area || b.zona || "", mesa: b.mesa || "", asiento: b.asiento || "" });
     }
     b.estado = "usado";
     b.usadoEn = new Date().toISOString();
     await escribirDB(db);
-    res.json({ resultado: "ok", nombre: b.nombre, folio: b.folio, zona: b.zona || "", mesa: b.mesa || "" });
+    res.json({ resultado: "ok", nombre: b.nombre, folio: b.folio, zona: b.area || b.zona || "", mesa: b.mesa || "", asiento: b.asiento || "" });
   });
 }));
 
@@ -1656,8 +1883,10 @@ app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
     const mp = mapaDe(ev);
     if (mp) {
       mesasInfo = {
-        vendidas: new Set(boletos.filter((b) => b.mesaId).map((b) => String(b.mesaId))).size,
+        vendidas: new Set(boletos.filter((b) => b.mesaId && !b.asiento).map((b) => String(b.mesaId))).size,
         total: mp.mesas.length,
+        asientosSueltos: boletos.filter((b) => b.mesaId && b.asiento).length,
+        porAsiento: mesasPorAsiento(ev).size,
       };
     }
   }

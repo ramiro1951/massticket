@@ -60,8 +60,8 @@
         <input id="c-cantidad" type="number" min="1" max="10" value="1">
       </div>
       <div class="campo" id="caja-mesas" style="display:none">
-        <label>Elige tu mesa</label>
-        <p class="ayuda" style="margin:0 0 8px"><strong>Tienes 20 minutos para pagar</strong> desde que eliges tu mesa y pasas al pago. Pasado ese tiempo la mesa se libera para otras personas.</p>
+        <label>Elige tu mesa o tus asientos</label>
+        <p class="ayuda" style="margin:0 0 8px"><strong>Tienes 20 minutos para pagar</strong> desde que eliges tus lugares y pasas al pago. Pasado ese tiempo se liberan para otras personas.</p>
         <div id="mapa-mesas"></div>
         <div id="resumen-mesas" style="margin-top:12px"></div>
       </div>
@@ -147,9 +147,9 @@ async function iniciarMapa(){
   try{
     const mapa = await (await fetch("/mapas/"+encodeURIComponent(evento.mapaId)+".json")).json();
     mapaCompra = MapaMesas.crear($("#mapa-mesas"), {
-      mapa, mesas: evento.mesas, max: 8,
+      mapa, mesas: evento.mesas, max: 8, maxAsientos: 10,
       onCambio: ()=>calcularTotal(),
-      onLimite: n=>mostrarError("Puedes comprar hasta "+n+" mesas a la vez. Si necesitas más, escríbenos por WhatsApp.")
+      onLimite: (n, tipo)=>mostrarError("Puedes comprar hasta "+n+(tipo==="asientos"?" asientos":" mesas")+" a la vez. Si necesitas más, escríbenos por WhatsApp.")
     });
     calcularTotal();
     // Mantiene el mapa al día si otra persona aparta una mesa mientras se decide.
@@ -170,13 +170,23 @@ async function refrescarMesas(){
 }
 function resumenMesasCompra(){
   const ids = mapaCompra ? mapaCompra.seleccion() : [];
+  const asientos = mapaCompra ? mapaCompra.seleccionAsientos() : [];
   let total = 0, boletos = 0;
   const lineas = ids.map(id=>{
     const i = mapaCompra.info(id);
     total += i.mesa; boletos += i.asientos;
-    return {id, texto:`Mesa ${id} · ${i.s.nombre} · ${i.asientos} personas`, precio:i.mesa};
+    return {id, texto:`Mesa ${id} · ${i.area || i.s.nombre} · ${i.asientos} personas`, precio:i.mesa};
   });
-  return {ids, total, boletos, lineas};
+  // asientos sueltos: una línea por mesa
+  const porMesa = new Map();
+  asientos.forEach(a=>{ if(!porMesa.has(a.mesa)) porMesa.set(a.mesa, []); porMesa.get(a.mesa).push(a.asiento); });
+  porMesa.forEach((nums, id)=>{
+    const i = mapaCompra.info(id);
+    const precio = (i.pp||0) * nums.length;
+    total += precio; boletos += nums.length;
+    lineas.push({id, texto:`Mesa ${id} · ${i.area || i.s.nombre} · asiento${nums.length>1?"s":""} ${nums.join(", ")} · mesa compartida`, precio});
+  });
+  return {ids, asientos, total, boletos, lineas};
 }
 let cantidadesZona = {}; // id de zona -> cuántas compras de esa zona
 function pintarZonas(){
@@ -210,7 +220,7 @@ function calcularTotal(){
     $("#c-total").textContent = pesos(r.total);
     $("#resumen-mesas").innerHTML = r.lineas.length
       ? r.lineas.map(l=>`<div class="mesa-linea"><span>${escaparHtml(l.texto)}</span><span>${pesos(l.precio)}</span></div>`).join("") + `<p class="ayuda" style="margin:8px 0 0">${r.boletos} boletos en total (uno por persona, cada uno con su QR y el número de mesa).</p>`
-      : '<p class="ayuda" style="margin:0">Toca una mesa del mapa para elegirla.</p>';
+      : '<p class="ayuda" style="margin:0">Toca una mesa del mapa para elegirla, o una mesa compartida para elegir tus asientos.</p>';
     return;
   }
   if(hayZonas()){
@@ -243,7 +253,8 @@ $("#b-comprar").onclick = async ()=>{
   const cuerpo = {eventoId, nombre, contacto, telefono};
   if(hayMapa()){
     cuerpo.mesas = mapaCompra ? mapaCompra.seleccion() : [];
-    if(!cuerpo.mesas.length){ mostrarError("Elige al menos una mesa en el mapa."); return; }
+    cuerpo.asientos = mapaCompra ? mapaCompra.seleccionAsientos() : [];
+    if(!cuerpo.mesas.length && !cuerpo.asientos.length){ mostrarError("Elige al menos una mesa o un asiento en el mapa."); return; }
   }else if(hayZonas()){
     cuerpo.zonas = evento.zonas.map(z=>({zonaId:z.id, cantidad: cantidadesZona[z.id]||0})).filter(z=>z.cantidad>0);
     if(!cuerpo.zonas.length){ mostrarError("Elige al menos un boleto."); return; }
@@ -280,8 +291,8 @@ $("#b-whatsapp").onclick = ()=>{
   let quiero = `${cantidad} boleto${cantidad>1?"s":""}`;
   if(hayMapa()){
     const r = resumenMesasCompra();
-    if(!r.ids.length){ mostrarError("Elige al menos una mesa en el mapa."); return; }
-    quiero = r.ids.map(id=>{ const i = mapaCompra.info(id); return `la Mesa ${id} (${i.s.nombre}, ${i.asientos} personas, ${pesos(i.mesa)})`; }).join(" y ");
+    if(!r.lineas.length){ mostrarError("Elige al menos una mesa o un asiento en el mapa."); return; }
+    quiero = r.lineas.map(l=>`${l.texto} (${pesos(l.precio)})`).join(" y ");
   }else if(hayZonas()){
     const partes = evento.zonas.filter(z=>cantidadesZona[z.id]>0).map(z=>`${cantidadesZona[z.id]} de ${z.nombre}`);
     if(!partes.length){ mostrarError("Elige al menos un boleto."); return; }

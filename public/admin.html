@@ -87,7 +87,15 @@
       <div class="campo">
         <label for="e-mapa">Mapa de mesas (opcional)</label>
         <select id="e-mapa"><option value="">Sin mapa</option></select>
-        <p class="zona-nota">Si el lugar tiene mapa, el cliente elige mesas completas. Aquí solo pones el precio por persona de cada sección; el cupo sale de las mesas del mapa.</p>
+        <p class="zona-nota">Si el lugar tiene mapa, el cliente elige mesas completas (o asientos sueltos en las mesas que pongas "por asiento"). Aquí solo pones el precio por persona de cada sección; el cupo sale de las mesas del mapa.</p>
+      </div>
+      <div class="campo" id="e-modo-caja" style="display:none">
+        <label for="e-modo">Modo de venta inicial</label>
+        <select id="e-modo">
+          <option value="mesa">Mesas completas</option>
+          <option value="asiento">Por asiento (mesa compartida)</option>
+        </select>
+        <p class="zona-nota">Es cómo empieza cada mesa al crear el evento. Después puedes cambiar mesas o zonas completas en "Mesas" al editar el evento, incluso con el evento ya a la venta.</p>
       </div>
       <div class="campo">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="e-oculto" style="width:auto"> Ocultar evento (no aparece en la página de inicio)</label>
@@ -96,6 +104,13 @@
       <div class="campo" id="mapa-precios" style="display:none">
         <label>Precio por persona de cada sección (MXN)</label>
         <div id="mapa-precios-lista"></div>
+      </div>
+      <div class="campo" id="mesas-config" style="display:none">
+        <label>Mesas: completas o por asiento</label>
+        <p class="zona-nota">Toca una mesa del mapa o usa los botones de zona. Las mesas con borde punteado se venden por asiento (mesa compartida). Una mesa vendida completa no puede pasar a "por asiento", y una con asientos vendidos no puede volver a "completa". Los cambios se guardan al momento.</p>
+        <div id="mesas-config-botones" class="fila-acciones" style="margin:8px 0"></div>
+        <div id="mesas-config-aviso" class="ayuda" style="margin:0 0 8px"></div>
+        <div id="mesas-config-mapa"></div>
       </div>
       <div class="campo" id="zonas-bloque">
         <label>Zonas con precios distintos (opcional)</label>
@@ -465,6 +480,7 @@ function actualizarModoZonas(){
   $("#e-precio-cupo").style.display = (hay || conMapa) ? "none" : "";
   $("#zonas-bloque").style.display = conMapa ? "none" : "";
   $("#mapa-precios").style.display = conMapa ? "" : "none";
+  $("#e-modo-caja").style.display = (conMapa && !eventoEditando) ? "" : "none";
 }
 /* ---------- Mapas de mesas (formulario del evento) ---------- */
 let mapasDisponibles = [];
@@ -506,6 +522,9 @@ function limpiarFormularioEvento(){
   imagenPendiente = null;
   $("#b-guardar-evento").textContent = "Crear evento";
   $("#b-cancelar-edicion").hidden = true;
+  $("#e-modo").value = "mesa";
+  ocultarMesasConfig();
+  actualizarModoZonas();
 }
 function cargarEventoParaEditar(id){
   const e = eventos.find(x=>x.id===id);
@@ -527,6 +546,8 @@ function cargarEventoParaEditar(id){
   else{ $("#e-imagen-preview").classList.remove("ver"); }
   $("#b-guardar-evento").textContent = "Guardar cambios";
   $("#b-cancelar-edicion").hidden = false;
+  if(e.mapaId) pintarMesasConfig(e); else ocultarMesasConfig();
+  actualizarModoZonas();
   $("#v-eventos").scrollIntoView({behavior:"smooth"});
 }
 $("#b-cancelar-edicion").onclick = limpiarFormularioEvento;
@@ -567,6 +588,7 @@ $("#b-guardar-evento").onclick = async ()=>{
     oculto: $("#e-oculto").checked,
     imagen: imagenPendiente
   };
+  if(!eventoEditando && cuerpo.mapaId) cuerpo.modoVenta = $("#e-modo").value;
   const btn = $("#b-guardar-evento");
   btn.disabled = true;
   try{
@@ -584,6 +606,58 @@ $("#b-guardar-evento").onclick = async ()=>{
   }
   btn.disabled = false;
 };
+
+/* ---------- Mesas por asiento (al editar un evento con mapa) ---------- */
+function lugarTexto(b){ return [b.area||b.zona, b.mesa?"Mesa "+b.mesa:"", b.asiento?"Asiento "+b.asiento:""].filter(Boolean).join(" · "); }
+let mapaConfig = null, mapaConfigEvento = null;
+function ocultarMesasConfig(){
+  $("#mesas-config").style.display = "none";
+  $("#mesas-config-mapa").innerHTML = ""; $("#mesas-config-botones").innerHTML = ""; $("#mesas-config-aviso").textContent = "";
+  mapaConfig = null; mapaConfigEvento = null;
+}
+async function pintarMesasConfig(ev){
+  $("#mesas-config").style.display = "";
+  try{
+    const [fresco, mapa] = await Promise.all([api("/api/eventos/"+encodeURIComponent(ev.id)), mapaJSON(ev.mapaId)]);
+    if(eventoEditando !== ev.id) return;
+    if(mapaConfig && mapaConfigEvento === ev.id){ mapaConfig.actualizar(fresco.mesas); return; }
+    mapaConfigEvento = ev.id;
+    mapaConfig = MapaMesas.crear($("#mesas-config-mapa"), {mapa, mesas: fresco.mesas, modo: "config",
+      onConfig: id=>{ const i = mapaConfig.info(id); cambiarModoMesas(ev, [id], !i.porAsiento); }});
+    // Botones por zona (VIP 01, 106...) y para todas las mesas.
+    const areas = [...new Set(mapa.mesas.map(m=>m.area).filter(Boolean))];
+    const caja = $("#mesas-config-botones");
+    const boton = (texto, ids, aAsiento)=>{
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn claro"; b.style.cssText = "padding:6px 10px;font-size:13px";
+      b.textContent = texto; b.onclick = ()=> cambiarModoMesas(ev, ids, aAsiento);
+      caja.appendChild(b);
+    };
+    const todas = mapa.mesas.map(m=>m.id);
+    boton("Todas por asiento", todas, true);
+    boton("Todas completas", todas, false);
+    areas.forEach(a=>{
+      const ids = mapa.mesas.filter(m=>m.area===a).map(m=>m.id);
+      boton(a+" → por asiento", ids, true);
+      boton(a+" → completas", ids, false);
+    });
+  }catch(e){ $("#mesas-config-aviso").textContent = "No se pudo cargar el mapa de mesas."; }
+}
+async function cambiarModoMesas(ev, ids, aAsiento){
+  const aviso = $("#mesas-config-aviso");
+  aviso.textContent = "Guardando…";
+  try{
+    const r = await api("/api/eventos/"+encodeURIComponent(ev.id)+"/por-asiento", {method:"PUT", body: JSON.stringify({mesas: ids, porAsiento: aAsiento})});
+    if(!r || r.error){ aviso.textContent = (r && r.error) || "No se pudo guardar."; return; }
+    const cambiadas = ids.length - r.omitidas.length;
+    let txt = `Listo: ${r.porAsiento.length} mesa(s) se venden por asiento.`;
+    if(r.omitidas.length) txt += ` No se cambiaron ${r.omitidas.length}: ` + r.omitidas.slice(0,6).map(o=>`mesa ${o.mesa} (${o.motivo})`).join(", ") + (r.omitidas.length>6?"…":"") + ".";
+    else if(!cambiadas) txt = "Sin cambios.";
+    aviso.textContent = txt;
+    const e = eventos.find(x=>x.id===ev.id); if(e) e.porAsiento = r.porAsiento;
+    await pintarMesasConfig(ev);
+  }catch(e){ aviso.textContent = "No se pudo guardar. Revisa tu conexión."; }
+}
 
 /* ---------- Puerta ---------- */
 function mostrarResultado(tipo, titulo, texto){
@@ -609,8 +683,9 @@ async function validar(codigo){
   }
   if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
   else if(r.resultado === "otro_evento") mostrarResultado("malo","Boleto de otro evento","Este boleto de "+r.nombre+" es para "+r.evento+(r.fecha?" ("+fechaLegible(r.fecha)+")":"")+", no para el evento elegido arriba. No se registró la entrada.");
-  else if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).length?" ("+[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
-  else mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+([r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")?[r.zona, r.mesa?"Mesa "+r.mesa:""].filter(Boolean).join(" · ")+" · ":"")+r.folio);
+  const lugar = [r.zona, r.mesa?"Mesa "+r.mesa:"", r.asiento?"Asiento "+r.asiento:""].filter(Boolean).join(" · ");
+  if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+(lugar?" ("+lugar+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
+  else if(r.resultado !== "no_existe" && r.resultado !== "otro_evento") mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+(lugar?lugar+" · ":"")+r.folio);
   $("#p-folio").value="";
 }
 $("#b-validar").onclick = ()=>validar($("#p-folio").value);
@@ -634,7 +709,7 @@ async function cargarBoletos(){
   pintarTabla(boletos);
   $("#b-buscar").oninput = ()=>{
     const q = $("#b-buscar").value.trim().toLowerCase();
-    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")+(b.telefono||"")+(b.zona||"")+(b.mesa?"mesa "+b.mesa:"")).toLowerCase().includes(q)));
+    pintarTabla(boletos.filter(b=>!q || (b.folio+b.nombre+(b.contacto||"")+(b.telefono||"")+(b.zona||"")+(b.area||"")+(b.mesa?"mesa "+b.mesa:"")+(b.asiento?" asiento "+b.asiento:"")).toLowerCase().includes(q)));
   };
 }
 function pintarTabla(lista){
@@ -655,7 +730,7 @@ function pintarTabla(lista){
     ${lista.map(b=>`<tr>
       <td>${b.folio}</td>
       <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div>${lineaCorreo(b)}</td>
-      <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}${b.mesa?" · Mesa "+escapar(b.mesa):""}</div></td>
+      <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${lugarTexto(b)?" · "+escapar(lugarTexto(b)):""}</div></td>
       <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
     </tr>`).join("")}</tbody></table>`;
   $("#tabla-boletos").querySelectorAll("[data-reenviar]").forEach(boton=>{
@@ -688,8 +763,8 @@ function botonWhatsApp(r, nombre, telefono){
   const evento = r.evento ? r.evento.nombre : "el evento";
   const fecha = r.evento && r.evento.fecha ? " ("+fechaLegible(r.evento.fecha)+")" : "";
   const n = r.boletos.length;
-  const mesas = [...new Set(r.boletos.filter(b=>b.mesa).map(b=>b.mesa))];
-  const mesaTxt = mesas.length ? ` ${mesas.length>1?"Tus mesas":"Tu mesa"}: ${mesas.join(", ")}.` : "";
+  const lugares = [...new Set(r.boletos.filter(b=>b.mesa).map(b=>"Mesa "+b.mesa+(b.asiento?" asiento "+b.asiento:"")))];
+  const mesaTxt = lugares.length ? ` Tus lugares: ${lugares.join(", ")}.` : "";
   const texto = `Hola ${nombre}, aquí ${n>1?"están tus "+n+" boletos":"está tu boleto"} para ${evento}${fecha}.${mesaTxt} Ábrelo aquí y presenta el código QR en la entrada: ${r.urlBoletos}`;
   const num = numeroWhatsApp(telefono);
   const url = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
@@ -705,9 +780,13 @@ async function mapaJSON(id){
 let mapaVenta = null, mapaVentaEvento = null;
 function resumenMesasVenta(){
   const ids = mapaVenta ? mapaVenta.seleccion() : [];
-  if(!ids.length){ $("#c-mesas-resumen").textContent = "Ninguna mesa elegida."; return; }
+  const asientos = mapaVenta ? mapaVenta.seleccionAsientos() : [];
+  if(!ids.length && !asientos.length){ $("#c-mesas-resumen").textContent = "Ninguna mesa ni asiento elegido."; return; }
   let boletos = 0, total = 0;
-  const partes = ids.map(id=>{ const i = mapaVenta.info(id); boletos += i.asientos; total += i.mesa; return "Mesa "+id+" ("+i.s.nombre+", "+i.asientos+" personas)"; });
+  const partes = ids.map(id=>{ const i = mapaVenta.info(id); boletos += i.asientos; total += i.mesa; return "Mesa "+id+" ("+(i.area||i.s.nombre)+", "+i.asientos+" personas)"; });
+  const porMesa = new Map();
+  asientos.forEach(a=>{ if(!porMesa.has(a.mesa)) porMesa.set(a.mesa, []); porMesa.get(a.mesa).push(a.asiento); });
+  porMesa.forEach((nums, id)=>{ const i = mapaVenta.info(id); boletos += nums.length; total += (i.pp||0)*nums.length; partes.push("Mesa "+id+" ("+(i.area||i.s.nombre)+"), asiento"+(nums.length>1?"s ":" ")+nums.join(", ")); });
   $("#c-mesas-resumen").textContent = partes.join(" · ") + " — " + boletos + " boletos, precio normal " + pesos(total);
 }
 async function pintarMapaVenta(ev){
@@ -716,7 +795,7 @@ async function pintarMapaVenta(ev){
     const mapa = await mapaJSON(ev.mapaId);
     if(mapaVenta && mapaVentaEvento===ev.id){ mapaVenta.actualizar(fresco.mesas); }
     else{
-      mapaVenta = MapaMesas.crear($("#c-mapa"), {mapa, mesas: fresco.mesas, max: 12, onCambio: resumenMesasVenta});
+      mapaVenta = MapaMesas.crear($("#c-mapa"), {mapa, mesas: fresco.mesas, max: 12, maxAsientos: 100, onCambio: resumenMesasVenta});
       mapaVentaEvento = ev.id;
     }
     resumenMesasVenta();
@@ -748,7 +827,8 @@ $("#b-registrar").onclick = async ()=>{
   };
   if($("#c-mesas-caja").style.display !== "none"){
     cuerpo.mesas = mapaVenta ? mapaVenta.seleccion() : [];
-    if(!cuerpo.mesas.length){ alert("Elige al menos una mesa en el mapa."); return; }
+    cuerpo.asientos = mapaVenta ? mapaVenta.seleccionAsientos() : [];
+    if(!cuerpo.mesas.length && !cuerpo.asientos.length){ alert("Elige al menos una mesa o un asiento en el mapa."); return; }
   }
   try{
     const r = await api("/api/ventas-manuales", {method:"POST", body: JSON.stringify(cuerpo)});
@@ -757,7 +837,7 @@ $("#b-registrar").onclick = async ()=>{
     const telefonoEnviado = cuerpo.telefono;
     cont.innerHTML = botonWhatsApp(r, nombre, telefonoEnviado) + r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
       <h3>${escapar(b.nombre)}</h3><div class="folio">${b.folio}</div>
-      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}${b.zona?" · "+escapar(b.zona):""}${b.mesa?" · Mesa "+escapar(b.mesa):""}</div>
+      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}${lugarTexto(b)?" · "+escapar(lugarTexto(b)):""}</div>
     </div><div class="talon"><div class="qr" data-folio="${b.folio}"></div></div></article>`).join("");
     cont.querySelectorAll(".qr").forEach(d=> new QRCode(d, {text:d.dataset.folio, width:100, height:100}));
     $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-telefono").value=""; $("#c-cantidad").value=1; $("#c-precio-manual").value="";
@@ -778,10 +858,10 @@ async function cargarPanel(){
     <div class="metrica"><b>${pesos(p.ingresos)}</b><span>ingresos</span></div>
     <div class="metrica"><b>${p.usados}</b><span>ya entraron</span></div>
     <div class="metrica"><b>${Math.max(0,p.cupo-p.vendidos)}</b><span>lugares libres</span></div>`;
-  $("#panel-avisos").innerHTML = (p.correosFallidos ? `<div class="error-caja ver" style="margin-bottom:12px">⚠ ${p.correosFallidos} compra(s) no recibieron sus boletos por correo (falló el envío). Búscalas en la pestaña Boletos y usa "Reenviar correo".</div>` : "") + (p.conflictos||[]).map(c=>`<div class="error-caja ver" style="margin-bottom:12px">⚠ Mesa repetida: ${escapar(c.nombre)} pagó la(s) mesa(s) ${escapar(c.mesas.join(", "))}, pero ya estaba(n) vendida(s) a otra persona. Hay que resolverlo con alguno de los dos clientes.</div>`).join("");
+  $("#panel-avisos").innerHTML = (p.correosFallidos ? `<div class="error-caja ver" style="margin-bottom:12px">⚠ ${p.correosFallidos} compra(s) no recibieron sus boletos por correo (falló el envío). Búscalas en la pestaña Boletos y usa "Reenviar correo".</div>` : "") + (p.conflictos||[]).map(c=>`<div class="error-caja ver" style="margin-bottom:12px">⚠ Lugar repetido: ${escapar(c.nombre)} pagó la(s) mesa(s) ${escapar(c.mesas.join(", "))}, pero ya estaba(n) vendida(s) a otra persona. Hay que resolverlo con alguno de los dos clientes.</div>`).join("");
   if(p.porZona && p.porZona.length){
     $("#panel-zonas").style.display = "";
-    $("#zonas-resumen").innerHTML = (p.mesas ? `<div style="font-size:14px;margin-bottom:8px;color:var(--ambar)">Mesas vendidas: ${p.mesas.vendidas} de ${p.mesas.total}</div>` : "") + p.porZona.map(z=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(z.nombre)} · ${z.vendidos}/${z.cupo}</span><span>${pesos(z.ingresos)}</span></div>`).join("");
+    $("#zonas-resumen").innerHTML = (p.mesas ? `<div style="font-size:14px;margin-bottom:8px;color:var(--ambar)">Mesas completas vendidas: ${p.mesas.vendidas} de ${p.mesas.total}${p.mesas.porAsiento ? ` · Asientos sueltos vendidos: ${p.mesas.asientosSueltos} (${p.mesas.porAsiento} mesas por asiento)` : ""}</div>` : "") + p.porZona.map(z=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(z.nombre)} · ${z.vendidos}/${z.cupo}</span><span>${pesos(z.ingresos)}</span></div>`).join("");
   }else{
     $("#panel-zonas").style.display = "none";
   }

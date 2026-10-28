@@ -13,7 +13,9 @@ messages are in Spanish; keep it that way.
     `gracias.html?venta=ID` shows tickets/QR after payment.
   - `admin.html` is the organizer panel (tabs: Eventos, Puerta, Boletos, Venta manual,
     Panel, Clientes). It authenticates with the `x-admin-key` header (kept in sessionStorage).
-  - `mapa-mesas.js` + `mapas/<id>.json` are the table-seating maps (tables sold whole).
+  - `mapa-mesas.js` + `mapas/<id>.json` are the table-seating maps. Tables sell whole by
+    default; tables listed in the event's `porAsiento` sell seat by seat (mesa compartida).
+    The organizer switches tables or whole zones (`area` in the map) when editing the event.
 - Data: a single JSON file `db.json` with arrays `eventos`, `ventas`, `boletos`, in
   `$DATA_DIR` (Railway volume) or `server/data/` locally. Every write goes through
   `conCandado()` (an in-process lock): always read-modify-write inside it.
@@ -32,6 +34,9 @@ messages are in Spanish; keep it that way.
   `mapaId` (zones derived from the map's sections, price per person).
 - "Today" uses `hoyMX()` (Mexico City time, rolls over at 6:00 am).
 - Events with issued tickets can't be deleted or change map, and zones with sales can't be removed.
+- Seat sales: `estadoAsientos()` holds seats like tables (tickets + recent `pendiente` sales).
+  A table sold or held whole can't switch to seats, and a table with seats sold or held
+  can't switch back to whole (`PUT /api/eventos/:id/por-asiento` enforces this).
 
 ## Running locally
 ```
