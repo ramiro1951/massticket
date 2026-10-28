@@ -57,6 +57,12 @@
     if(asientos === 2){
       return w >= h ? [[x+w*0.28, cy],[x+w*0.72, cy]] : [[cx, y+h*0.28],[cx, y+h*0.72]];
     }
+    if(asientos === 6){
+      // dos filas de 3 sobre el lado largo; el número queda en el centro
+      return w >= h
+        ? [[x+dx, y+dy],[cx, y+dy],[x+w-dx, y+dy],[x+dx, y+h-dy],[cx, y+h-dy],[x+w-dx, y+h-dy]]
+        : [[x+dx, y+dy],[x+dx, cy],[x+dx, y+h-dy],[x+w-dx, y+dy],[x+w-dx, cy],[x+w-dx, y+h-dy]];
+    }
     if(asientos === 3){
       return [[cx, y+dy],[x+dx, y+h-dy],[x+w-dx, y+h-dy]]; // triángulo: deja libre el centro para el número
     }
@@ -82,7 +88,7 @@
     caja.appendChild(leyenda);
     const nota = document.createElement("p");
     nota.className = "mm-nota";
-    nota.textContent = "Cada mesa se compra completa: compras un boleto por cada persona que cabe en la mesa (4, 3 o 2 según la mesa). Pasa el cursor (o toca) una mesa para ver su precio.";
+    nota.textContent = "Cada mesa se compra completa: compras un boleto por cada persona que cabe en la mesa (6, 4, 3 o 2 según la mesa). Pasa el cursor (o toca) una mesa para ver su precio.";
     caja.appendChild(nota);
 
     const [vx,vy,vw,vh] = mapa.viewBox;

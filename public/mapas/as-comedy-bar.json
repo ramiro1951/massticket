@@ -1,0 +1,1338 @@
+{
+  "id": "as-comedy-bar",
+  "nombre": "As Comedy Bar",
+  "viewBox": [
+    0,
+    0,
+    2030,
+    1980
+  ],
+  "secciones": [
+    {
+      "id": "vip",
+      "nombre": "VIP",
+      "color": "#F2A71B",
+      "texto": "#1b1b19",
+      "asiento": "rgba(0,0,0,.35)"
+    },
+    {
+      "id": "general-3",
+      "nombre": "General (mesa de 3)",
+      "color": "#3D93DB",
+      "texto": "#ffffff",
+      "asiento": "rgba(255,255,255,.55)"
+    },
+    {
+      "id": "general-2",
+      "nombre": "General (mesa de 2)",
+      "color": "#E5484D",
+      "texto": "#ffffff",
+      "asiento": "rgba(255,255,255,.55)"
+    }
+  ],
+  "mesas": [
+    {
+      "id": "06",
+      "seccion": "vip",
+      "asientos": 6,
+      "x": 410,
+      "y": 84,
+      "w": 190,
+      "h": 122
+    },
+    {
+      "id": "109",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 70,
+      "y": 66,
+      "w": 70,
+      "h": 100
+    },
+    {
+      "id": "108",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 70,
+      "y": 226,
+      "w": 70,
+      "h": 100
+    },
+    {
+      "id": "107",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 70,
+      "y": 390,
+      "w": 70,
+      "h": 100
+    },
+    {
+      "id": "106",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 70,
+      "y": 550,
+      "w": 70,
+      "h": 100
+    },
+    {
+      "id": "105",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 70,
+      "y": 710,
+      "w": 70,
+      "h": 100
+    },
+    {
+      "id": "104",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 70,
+      "y": 850,
+      "w": 70,
+      "h": 100
+    },
+    {
+      "id": "73",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 224,
+      "y": 370,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "71",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 224,
+      "y": 494,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "69",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 224,
+      "y": 614,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "67",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 224,
+      "y": 738,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "65",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 224,
+      "y": 860,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "63",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 224,
+      "y": 984,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "72",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 348,
+      "y": 434,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "70",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 348,
+      "y": 554,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "68",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 348,
+      "y": 678,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "66",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 348,
+      "y": 800,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "64",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 348,
+      "y": 922,
+      "w": 104,
+      "h": 100
+    },
+    {
+      "id": "05",
+      "seccion": "vip",
+      "asientos": 6,
+      "x": 580,
+      "y": 260,
+      "w": 132,
+      "h": 190
+    },
+    {
+      "id": "04",
+      "seccion": "vip",
+      "asientos": 6,
+      "x": 746,
+      "y": 260,
+      "w": 132,
+      "h": 190
+    },
+    {
+      "id": "03",
+      "seccion": "vip",
+      "asientos": 6,
+      "x": 916,
+      "y": 260,
+      "w": 132,
+      "h": 190
+    },
+    {
+      "id": "02",
+      "seccion": "vip",
+      "asientos": 6,
+      "x": 1084,
+      "y": 260,
+      "w": 132,
+      "h": 190
+    },
+    {
+      "id": "01",
+      "seccion": "vip",
+      "asientos": 6,
+      "x": 1252,
+      "y": 260,
+      "w": 132,
+      "h": 190
+    },
+    {
+      "id": "11",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 580,
+      "y": 494,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "10",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 746,
+      "y": 494,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "09",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 916,
+      "y": 494,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "08",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1084,
+      "y": 494,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "07",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1252,
+      "y": 494,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "16",
+      "seccion": "vip",
+      "asientos": 4,
+      "x": 580,
+      "y": 660,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "15",
+      "seccion": "vip",
+      "asientos": 4,
+      "x": 746,
+      "y": 660,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "14",
+      "seccion": "vip",
+      "asientos": 4,
+      "x": 916,
+      "y": 660,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "13",
+      "seccion": "vip",
+      "asientos": 4,
+      "x": 1084,
+      "y": 660,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "12",
+      "seccion": "vip",
+      "asientos": 4,
+      "x": 1252,
+      "y": 660,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "20",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 664,
+      "y": 830,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "19",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 832,
+      "y": 830,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "18",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1000,
+      "y": 830,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "17",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1168,
+      "y": 830,
+      "w": 132,
+      "h": 128
+    },
+    {
+      "id": "26",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 562,
+      "y": 996,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "25",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 704,
+      "y": 996,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "24",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 846,
+      "y": 996,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "23",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 988,
+      "y": 996,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "22",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 1130,
+      "y": 996,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "21",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 1272,
+      "y": 996,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "40",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 562,
+      "y": 1116,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "39",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 704,
+      "y": 1116,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "38",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 846,
+      "y": 1116,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "37",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 988,
+      "y": 1116,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "36",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1130,
+      "y": 1116,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "35",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1272,
+      "y": 1116,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "46",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 562,
+      "y": 1204,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "45",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 704,
+      "y": 1204,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "44",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 846,
+      "y": 1204,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "43",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 988,
+      "y": 1204,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "42",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1130,
+      "y": 1204,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "41",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1272,
+      "y": 1204,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "52",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 562,
+      "y": 1296,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "51",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 704,
+      "y": 1296,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "50",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 846,
+      "y": 1296,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "49",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 988,
+      "y": 1296,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "48",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1130,
+      "y": 1296,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "47",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1272,
+      "y": 1296,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "57",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 562,
+      "y": 1386,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "56",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 704,
+      "y": 1386,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "55",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 988,
+      "y": 1386,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "54",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1130,
+      "y": 1386,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "53",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1272,
+      "y": 1386,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "62",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 562,
+      "y": 1476,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "61",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 704,
+      "y": 1476,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "60",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 988,
+      "y": 1476,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "59",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1130,
+      "y": 1476,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "58",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1272,
+      "y": 1476,
+      "w": 124,
+      "h": 72
+    },
+    {
+      "id": "00",
+      "seccion": "vip",
+      "asientos": 6,
+      "x": 1470,
+      "y": 240,
+      "w": 190,
+      "h": 126
+    },
+    {
+      "id": "28",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1476,
+      "y": 430,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "27",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1646,
+      "y": 430,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "30",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1476,
+      "y": 594,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "29",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1646,
+      "y": 594,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "32",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1476,
+      "y": 758,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "31",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1646,
+      "y": 758,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "34",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1476,
+      "y": 922,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "33",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1646,
+      "y": 922,
+      "w": 130,
+      "h": 128
+    },
+    {
+      "id": "86",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 1796,
+      "y": 1384,
+      "w": 70,
+      "h": 100
+    },
+    {
+      "id": "74",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1800,
+      "y": 80,
+      "w": 100,
+      "h": 110
+    },
+    {
+      "id": "75",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1800,
+      "y": 220,
+      "w": 100,
+      "h": 110
+    },
+    {
+      "id": "76",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1800,
+      "y": 360,
+      "w": 100,
+      "h": 110
+    },
+    {
+      "id": "77",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1800,
+      "y": 500,
+      "w": 100,
+      "h": 110
+    },
+    {
+      "id": "78",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1800,
+      "y": 640,
+      "w": 100,
+      "h": 110
+    },
+    {
+      "id": "79",
+      "seccion": "vip",
+      "asientos": 3,
+      "x": 1800,
+      "y": 780,
+      "w": 100,
+      "h": 110
+    },
+    {
+      "id": "80",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1934,
+      "y": 90,
+      "w": 70,
+      "h": 90
+    },
+    {
+      "id": "81",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1934,
+      "y": 230,
+      "w": 70,
+      "h": 90
+    },
+    {
+      "id": "82",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1934,
+      "y": 370,
+      "w": 70,
+      "h": 90
+    },
+    {
+      "id": "83",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1934,
+      "y": 510,
+      "w": 70,
+      "h": 90
+    },
+    {
+      "id": "84",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1934,
+      "y": 650,
+      "w": 70,
+      "h": 90
+    },
+    {
+      "id": "85",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1934,
+      "y": 790,
+      "w": 70,
+      "h": 90
+    },
+    {
+      "id": "91",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 696,
+      "y": 1642,
+      "w": 124,
+      "h": 66
+    },
+    {
+      "id": "90",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 838,
+      "y": 1642,
+      "w": 124,
+      "h": 66
+    },
+    {
+      "id": "89",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 982,
+      "y": 1642,
+      "w": 124,
+      "h": 66
+    },
+    {
+      "id": "88",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 1124,
+      "y": 1642,
+      "w": 124,
+      "h": 66
+    },
+    {
+      "id": "87",
+      "seccion": "vip",
+      "asientos": 2,
+      "x": 1266,
+      "y": 1642,
+      "w": 124,
+      "h": 66
+    },
+    {
+      "id": "97",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 630,
+      "y": 1764,
+      "w": 120,
+      "h": 66
+    },
+    {
+      "id": "92",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1334,
+      "y": 1764,
+      "w": 120,
+      "h": 66
+    },
+    {
+      "id": "96",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 778,
+      "y": 1746,
+      "w": 100,
+      "h": 104
+    },
+    {
+      "id": "95",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 922,
+      "y": 1746,
+      "w": 100,
+      "h": 104
+    },
+    {
+      "id": "94",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1062,
+      "y": 1746,
+      "w": 100,
+      "h": 104
+    },
+    {
+      "id": "93",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1206,
+      "y": 1746,
+      "w": 100,
+      "h": 104
+    },
+    {
+      "id": "103",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 630,
+      "y": 1886,
+      "w": 120,
+      "h": 66
+    },
+    {
+      "id": "98",
+      "seccion": "general-2",
+      "asientos": 2,
+      "x": 1334,
+      "y": 1886,
+      "w": 120,
+      "h": 66
+    },
+    {
+      "id": "102",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 778,
+      "y": 1866,
+      "w": 100,
+      "h": 104
+    },
+    {
+      "id": "101",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 922,
+      "y": 1866,
+      "w": 100,
+      "h": 104
+    },
+    {
+      "id": "100",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1062,
+      "y": 1866,
+      "w": 100,
+      "h": 104
+    },
+    {
+      "id": "99",
+      "seccion": "general-3",
+      "asientos": 3,
+      "x": 1206,
+      "y": 1866,
+      "w": 100,
+      "h": 104
+    }
+  ],
+  "decoracion": [
+    {
+      "tipo": "rect",
+      "x": 200,
+      "y": 200,
+      "w": 1586,
+      "h": 1406,
+      "fill": "#22324F",
+      "rx": 8
+    },
+    {
+      "tipo": "rect",
+      "x": 196,
+      "y": 0,
+      "w": 146,
+      "h": 200,
+      "fill": "#0B1322",
+      "texto": "CABINA",
+      "ts": 26,
+      "tc": "#8FA0B8",
+      "bold": 1
+    },
+    {
+      "tipo": "rect",
+      "x": 614,
+      "y": 0,
+      "w": 732,
+      "h": 206,
+      "fill": "#0B1322",
+      "texto": "ESCENARIO",
+      "ts": 68,
+      "tc": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "rect",
+      "x": 1524,
+      "y": 0,
+      "w": 236,
+      "h": 66,
+      "fill": "#1f9d55",
+      "rx": 6,
+      "texto": "ENTRADA",
+      "ts": 36,
+      "tc": "#ffffff",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 336,
+      "y": 350,
+      "texto": "107",
+      "size": 56,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 980,
+      "y": 252,
+      "texto": "VIP 100",
+      "size": 36,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 980,
+      "y": 486,
+      "texto": "VIP 101",
+      "size": 36,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 980,
+      "y": 654,
+      "texto": "VIP 102",
+      "size": 36,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 980,
+      "y": 822,
+      "texto": "VIP 103",
+      "size": 36,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 980,
+      "y": 988,
+      "texto": "VIP 104",
+      "size": 36,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 974,
+      "y": 1108,
+      "texto": "106",
+      "size": 36,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1624,
+      "y": 410,
+      "texto": "105",
+      "size": 40,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1586,
+      "y": 1436,
+      "texto": "VIP 102",
+      "size": 44,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 106,
+      "y": 1014,
+      "texto": "VIP",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 106,
+      "y": 1060,
+      "texto": "114",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1860,
+      "y": 944,
+      "texto": "VIP",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1860,
+      "y": 990,
+      "texto": "108",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1970,
+      "y": 944,
+      "texto": "109",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1042,
+      "y": 1634,
+      "texto": "VIP 110",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 692,
+      "y": 1740,
+      "texto": "113",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1044,
+      "y": 1740,
+      "texto": "112",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1396,
+      "y": 1740,
+      "texto": "111",
+      "size": 34,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "texto",
+      "x": 1724,
+      "y": 1206,
+      "texto": "PLANTA ALTA",
+      "size": 28,
+      "color": "#F5EFE1",
+      "bold": 1
+    },
+    {
+      "tipo": "rect",
+      "x": 1676,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1688,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1700,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1712,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1724,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1736,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1748,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1760,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "rect",
+      "x": 1772,
+      "y": 1230,
+      "w": 7,
+      "h": 76,
+      "fill": "#cfd8e6"
+    },
+    {
+      "tipo": "texto",
+      "x": 118,
+      "y": 1426,
+      "texto": "PLANTA ALTA",
+      "size": 56,
+      "color": "#8FA0B8",
+      "bold": 1,
+      "rot": 90,
+      "ls": 8
+    },
+    {
+      "tipo": "texto",
+      "x": 1962,
+      "y": 1426,
+      "texto": "PLANTA ALTA",
+      "size": 56,
+      "color": "#8FA0B8",
+      "bold": 1,
+      "rot": -90,
+      "ls": 8
+    }
+  ]
+}
