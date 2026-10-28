@@ -10,7 +10,7 @@
   "secciones": [
     {
       "id": "vip",
-      "nombre": "VIP",
+      "nombre": "VIP (mesa de 6, 4, 3, 2)",
       "color": "#F2A71B",
       "texto": "#1b1b19",
       "asiento": "rgba(0,0,0,.35)"
