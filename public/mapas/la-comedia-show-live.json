@@ -10,21 +10,21 @@
   "secciones": [
     {
       "id": "vip",
-      "nombre": "VIP",
+      "nombre": "VIP (mesa de 4, 2)",
       "color": "#F2A71B",
       "texto": "#1b1b19",
       "asiento": "rgba(0,0,0,.35)"
     },
     {
       "id": "preferente",
-      "nombre": "Preferente",
+      "nombre": "Preferente (mesa de 4, 3)",
       "color": "#D7263D",
       "texto": "#ffffff",
       "asiento": "rgba(255,255,255,.55)"
     },
     {
       "id": "general",
-      "nombre": "General",
+      "nombre": "General (mesa de 4, 3, 2)",
       "color": "#2F6FD1",
       "texto": "#ffffff",
       "asiento": "rgba(255,255,255,.55)"
@@ -34,6 +34,7 @@
     {
       "id": "1",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 120,
       "y": 122,
@@ -43,6 +44,7 @@
     {
       "id": "2",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 292,
       "y": 119,
@@ -52,6 +54,7 @@
     {
       "id": "3",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 445,
       "y": 122,
@@ -61,6 +64,7 @@
     {
       "id": "4",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 2,
       "x": 133,
       "y": 247,
@@ -70,6 +74,7 @@
     {
       "id": "5",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 295,
       "y": 247,
@@ -79,6 +84,7 @@
     {
       "id": "6",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 437,
       "y": 247,
@@ -88,6 +94,7 @@
     {
       "id": "7",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 136,
       "y": 375,
@@ -97,6 +104,7 @@
     {
       "id": "8",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 295,
       "y": 370,
@@ -106,6 +114,7 @@
     {
       "id": "9",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 4,
       "x": 440,
       "y": 370,
@@ -115,6 +124,7 @@
     {
       "id": "33",
       "seccion": "vip",
+      "area": "VIP",
       "asientos": 2,
       "x": 58,
       "y": 212,
@@ -126,6 +136,7 @@
     {
       "id": "10",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 3,
       "x": 637,
       "y": 570,
@@ -135,6 +146,7 @@
     {
       "id": "11",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 138,
       "y": 500,
@@ -144,6 +156,7 @@
     {
       "id": "12",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 296,
       "y": 483,
@@ -153,6 +166,7 @@
     {
       "id": "13",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 440,
       "y": 498,
@@ -162,6 +176,7 @@
     {
       "id": "14",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 3,
       "x": 637,
       "y": 720,
@@ -171,6 +186,7 @@
     {
       "id": "15",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 3,
       "x": 138,
       "y": 600,
@@ -180,6 +196,7 @@
     {
       "id": "16",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 296,
       "y": 608,
@@ -189,6 +206,7 @@
     {
       "id": "17",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 440,
       "y": 626,
@@ -198,6 +216,7 @@
     {
       "id": "18",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 140,
       "y": 741,
@@ -207,6 +226,7 @@
     {
       "id": "19",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 296,
       "y": 740,
@@ -216,6 +236,7 @@
     {
       "id": "20",
       "seccion": "preferente",
+      "area": "Preferente",
       "asientos": 4,
       "x": 440,
       "y": 749,
@@ -225,6 +246,7 @@
     {
       "id": "21",
       "seccion": "general",
+      "area": "General",
       "asientos": 4,
       "x": 140,
       "y": 871,
@@ -234,6 +256,7 @@
     {
       "id": "22",
       "seccion": "general",
+      "area": "General",
       "asientos": 4,
       "x": 296,
       "y": 867,
@@ -243,6 +266,7 @@
     {
       "id": "23",
       "seccion": "general",
+      "area": "General",
       "asientos": 4,
       "x": 440,
       "y": 880,
@@ -252,6 +276,7 @@
     {
       "id": "24",
       "seccion": "general",
+      "area": "General",
       "asientos": 3,
       "x": 637,
       "y": 860,
@@ -261,6 +286,7 @@
     {
       "id": "25",
       "seccion": "general",
+      "area": "General",
       "asientos": 4,
       "x": 295,
       "y": 990,
@@ -270,6 +296,7 @@
     {
       "id": "26",
       "seccion": "general",
+      "area": "General",
       "asientos": 4,
       "x": 440,
       "y": 1007,
@@ -279,6 +306,7 @@
     {
       "id": "27",
       "seccion": "general",
+      "area": "General",
       "asientos": 4,
       "lx": 684,
       "ly": 1174,
@@ -302,6 +330,7 @@
     {
       "id": "28",
       "seccion": "general",
+      "area": "General",
       "asientos": 2,
       "x": 493,
       "y": 1204,
@@ -311,6 +340,7 @@
     {
       "id": "29",
       "seccion": "general",
+      "area": "General",
       "asientos": 2,
       "x": 361,
       "y": 1204,
@@ -320,6 +350,7 @@
     {
       "id": "30",
       "seccion": "general",
+      "area": "General",
       "asientos": 2,
       "x": 215,
       "y": 1204,
@@ -329,6 +360,7 @@
     {
       "id": "31",
       "seccion": "general",
+      "area": "General",
       "asientos": 2,
       "x": 192,
       "y": 1047,
@@ -340,6 +372,7 @@
     {
       "id": "32",
       "seccion": "general",
+      "area": "General",
       "asientos": 2,
       "x": 97,
       "y": 1042,
