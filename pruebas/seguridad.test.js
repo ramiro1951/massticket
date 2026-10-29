@@ -131,3 +131,31 @@ test("carteles: solo se aceptan imágenes de verdad", async () => {
   const buena = await s.pedir("/api/eventos", { metodo: "POST", admin: true, cuerpo: { nombre: "X", imagen: "data:image/jpeg;base64,/9j/4AAQ" } });
   assert.equal(buena.status, 200);
 });
+
+test("encabezados de seguridad en páginas y API", async () => {
+  for (const ruta of ["/", "/admin.html", "/api/eventos"]) {
+    const r = await fetch(s.url + ruta);
+    const csp = r.headers.get("content-security-policy");
+    assert.match(csp, /frame-ancestors 'none'/, ruta);
+    assert.match(csp, /connect-src 'self'/, ruta);
+    assert.match(csp, /script-src 'self' 'unsafe-inline'(;|$)/, ruta);
+    assert.equal(r.headers.get("x-frame-options"), "DENY");
+    assert.equal(r.headers.get("x-content-type-options"), "nosniff");
+    assert.match(r.headers.get("permissions-policy"), /camera=\(self\)/);
+    assert.equal(r.headers.get("x-powered-by"), null);
+  }
+});
+
+test("otros sitios no pueden llamar a la API desde el navegador (sin CORS)", async () => {
+  const r = await fetch(s.url + "/api/eventos", { headers: { origin: "https://sitio-ajeno.example" } });
+  assert.equal(r.headers.get("access-control-allow-origin"), null);
+  const pre = await fetch(s.url + "/api/comprar", { method: "OPTIONS", headers: { origin: "https://sitio-ajeno.example", "access-control-request-method": "POST" } });
+  assert.equal(pre.headers.get("access-control-allow-origin"), null);
+});
+
+test("peticiones enormes: se rechazan en la API pública, pero el cartel de un evento sí cabe", async () => {
+  const grande = await s.pedir("/api/comprar", { metodo: "POST", ip: "10.8.0.1", cuerpo: { nombre: "x".repeat(300 * 1024) } });
+  assert.equal(grande.status, 413);
+  const cartel = "data:image/jpeg;base64," + "A".repeat(2 * 1024 * 1024);
+  assert.equal((await s.pedir("/api/eventos", { metodo: "POST", admin: true, cuerpo: { nombre: "Con cartel", imagen: cartel } })).status, 200);
+});
