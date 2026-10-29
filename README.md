@@ -132,6 +132,15 @@ verdad.
 3. Entra a `https://massticket.mx/admin.html`, mete tu `ADMIN_KEY`, y en
    **Puerta** valida el folio que acabas de generar.
 
+## Pruebas automáticas
+
+Antes de subir un cambio, corre `npm test` en la carpeta principal del
+proyecto. En unos 15 segundos revisa compras, pagos, cupo, mesas, asientos,
+apartados, la puerta, los correos y los límites de seguridad. Usa un
+Mercado Pago y un correo simulados y datos vacíos en una carpeta temporal:
+no toca dinero, correos ni clientes reales. No sustituye una compra de
+prueba real en el sitio después de cada cambio importante.
+
 ## Crear y administrar tus eventos
 
 Desde `admin.html` → pestaña **Eventos** puedes crear todos los eventos

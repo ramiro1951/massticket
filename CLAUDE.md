@@ -51,8 +51,13 @@ npm run dev                                     # http://localhost:3000
 ```
 Env vars: `MP_ACCESS_TOKEN`, `MP_WEBHOOK_SECRET`, `ADMIN_KEY`, `PUBLIC_URL`, `RESEND_API_KEY`,
 `EMAIL_FROM`, `DATA_DIR`, `PORT`. Use Mercado Pago TEST credentials locally, never production.
-There are no automated tests or linter yet. At minimum, run `node --check server/server.js`
-and click through the purchase and admin flows manually.
+Automated tests: `npm test` (Node's built-in runner, no extra dependencies; files in
+`pruebas/*.test.js`). Each test file starts its own server on a free port with an empty
+temporary `DATA_DIR` and a simulated Mercado Pago and Resend (`pruebas/simulador.cjs`),
+so tests never touch real money, real email or `db.json`. Run `npm test` and
+`node --check server/server.js` before every push; add or update tests when changing
+payment, capacity, door or reservation logic. Manual click-through of purchase and admin
+flows is still needed for real Mercado Pago, email and phone-camera behavior.
 
 ## Deployment
 Railway deploys automatically from GitHub (`npm start`). Whatever is pushed to the
