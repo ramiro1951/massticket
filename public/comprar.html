@@ -73,12 +73,14 @@
       <div class="fila-acciones">
         <button class="btn" id="b-comprar">Pagar con Mercado Pago</button>
         <button class="btn claro" id="b-whatsapp" type="button">Comprar por WhatsApp</button>
+        <button class="btn claro" id="b-apartar" type="button" style="display:none">Apartar con 50% por WhatsApp</button>
         <div class="total" id="c-total">$0</div>
       </div>
       <p class="ayuda" style="margin:12px 0 0">Al pasar al pago, tus lugares quedan reservados por <strong>20 minutos</strong>. Si no completas el pago en ese tiempo, se liberan y tendrás que elegirlos de nuevo.</p>
     </div>
     <p class="ayuda" style="margin-top:14px"><strong>No necesitas tener cuenta de Mercado Pago.</strong> Puedes pagar como invitado con tu tarjeta de débito o crédito. Al pagar te llevamos a la página segura de Mercado Pago; ahí elige "Continuar como invitado" si no tienes cuenta. Cuando termines, regresas aquí automáticamente y tus boletos con QR quedan listos.</p>
     <p class="ayuda">¿Prefieres pagar por WhatsApp? Escríbenos con el botón de arriba y coordinamos tu compra directamente.</p>
+    <p class="ayuda" id="ayuda-apartar" style="display:none"></p>
   </div>
 
   <div id="no-encontrado" style="display:none">
@@ -127,6 +129,13 @@ async function cargarEvento(){
     pintarZonas();
   }
   if(evento.imagen){ $("#cartel").src = evento.imagen; $("#cartel").classList.add("ver"); }
+  // Apartar con anticipo: solo hasta unos días antes del evento (lo decide el servidor).
+  const ap = evento.apartado;
+  if(ap && ap.disponible){
+    $("#b-apartar").style.display = "";
+    $("#ayuda-apartar").style.display = "";
+    $("#ayuda-apartar").innerHTML = `<strong>¿Quieres apartar?</strong> Paga el 50% por WhatsApp y tienes ${ap.dias} días para pagar el resto. Tus lugares quedan apartados cuando confirmemos tu anticipo. Si no liquidas a tiempo, se liberan y <strong>el anticipo no se devuelve</strong>. Puedes apartar hasta el ${escaparHtml(fechaLegible(ap.ultimoDia))}.`;
+  }
   calcularTotal();
 
   const params = new URLSearchParams(location.search);
@@ -282,26 +291,46 @@ $("#b-comprar").onclick = async ()=>{
 // El "1" después de "52" es un detalle de cómo WhatsApp reconoce los
 // números celulares de México; sin él, el enlace no abre el chat correcto.
 const WHATSAPP_NUMERO = "5218141309248"; // +52 81 4130 9248
-$("#b-whatsapp").onclick = ()=>{
+// Lo que eligió la persona, en texto, y su total. null si falta algo (ya avisó).
+function pedidoWhatsApp(){
   const nombre = $("#c-nombre").value.trim();
-  if(!nombre){ $("#c-nombre").focus(); mostrarError("Escribe el nombre de quien asiste."); return; }
+  if(!nombre){ $("#c-nombre").focus(); mostrarError("Escribe el nombre de quien asiste."); return null; }
   const cantidad = Math.max(1, Math.min(10, parseInt($("#c-cantidad").value||1)));
-  const nombreEvento = evento?.nombre || "el evento";
-  const fecha = evento ? fechaLegible(evento.fecha) : "";
   let quiero = `${cantidad} boleto${cantidad>1?"s":""}`;
+  let total = cantidad * (evento?.precio||0);
   if(hayMapa()){
     const r = resumenMesasCompra();
-    if(!r.lineas.length){ mostrarError("Elige al menos una mesa o un asiento en el mapa."); return; }
+    if(!r.lineas.length){ mostrarError("Elige al menos una mesa o un asiento en el mapa."); return null; }
     quiero = r.lineas.map(l=>`${l.texto} (${pesos(l.precio)})`).join(" y ");
+    total = r.total;
   }else if(hayZonas()){
-    const partes = evento.zonas.filter(z=>cantidadesZona[z.id]>0).map(z=>`${cantidadesZona[z.id]} de ${z.nombre}`);
-    if(!partes.length){ mostrarError("Elige al menos un boleto."); return; }
-    quiero = partes.join(", ");
+    const elegidas = evento.zonas.filter(z=>cantidadesZona[z.id]>0);
+    if(!elegidas.length){ mostrarError("Elige al menos un boleto."); return null; }
+    quiero = elegidas.map(z=>`${cantidadesZona[z.id]} de ${z.nombre}`).join(", ");
+    total = elegidas.reduce((t,z)=>t + cantidadesZona[z.id]*z.precio, 0);
   }
-  let texto = `Hola, quiero comprar ${quiero} para ${nombreEvento}`;
-  if(fecha) texto += ` (${fecha})`;
-  texto += `. Mi nombre es ${nombre}.`;
+  const nombreEvento = evento?.nombre || "el evento";
+  const fecha = evento ? fechaLegible(evento.fecha) : "";
+  return {nombre, quiero, total, evento: nombreEvento + (fecha ? ` (${fecha})` : "")};
+}
+function abrirWhatsApp(texto){
   window.open(`https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(texto)}`, "_blank");
+}
+$("#b-whatsapp").onclick = ()=>{
+  const p = pedidoWhatsApp();
+  if(!p) return;
+  abrirWhatsApp(`Hola, quiero comprar ${p.quiero} para ${p.evento}. Mi nombre es ${p.nombre}.`);
+};
+$("#b-apartar").onclick = ()=>{
+  const ap = evento && evento.apartado;
+  if(!ap || !ap.disponible){ mostrarError("Este evento ya no acepta apartados."); return; }
+  const p = pedidoWhatsApp();
+  if(!p) return;
+  const anticipo = Math.round(p.total * 50) / 100;
+  const resto = Math.round((p.total - anticipo) * 100) / 100;
+  abrirWhatsApp(`Hola, quiero apartar ${p.quiero} para ${p.evento}. Total: ${pesos(p.total)}. Anticipo del 50%: ${pesos(anticipo)}. `
+    + `Entiendo que tengo hasta el ${fechaLegible(ap.vence)} para pagar el resto (${pesos(resto)}) y que, si no lo pago a tiempo, pierdo los lugares y el anticipo. `
+    + `Mi nombre es ${p.nombre}.`);
 };
 
 cargarEvento();

@@ -171,8 +171,15 @@
       <label for="sel-evento-vender">Evento:</label>
       <select id="sel-evento-vender"></select>
     </div>
-    <p class="ayuda">Para efectivo en puerta o cortesías. No pasa por Mercado Pago.</p>
+    <p class="ayuda">Para efectivo en puerta, cortesías o apartados con anticipo. No pasa por Mercado Pago.</p>
     <div class="panel-caja">
+      <div class="campo">
+        <label for="c-tipo">¿Qué vas a registrar?</label>
+        <select id="c-tipo">
+          <option value="venta">Venta: generar los boletos ahora</option>
+          <option value="apartado">Apartado: ya pagó el anticipo, falta el resto</option>
+        </select>
+      </div>
       <div class="duo">
         <div class="campo"><label for="c-nombre">Nombre</label><input id="c-nombre" placeholder="Ana Ramírez"></div>
         <div class="campo"><label for="c-contacto">Contacto</label><input id="c-contacto" placeholder="Opcional"></div>
@@ -193,7 +200,7 @@
       </div>
       <div class="duo">
         <div class="campo" id="c-cantidad-caja"><label for="c-cantidad">Boletos</label><input id="c-cantidad" type="number" min="1" max="100" value="1"></div>
-        <div class="campo">
+        <div class="campo" id="c-metodo-caja">
           <label for="c-metodo">Forma de pago</label>
           <select id="c-metodo"><option>Efectivo</option><option>Transferencia</option><option>Cortesía</option></select>
         </div>
@@ -202,9 +209,27 @@
         <label for="c-precio-manual">Precio por boleto (opcional, para una promoción o precio especial)</label>
         <input id="c-precio-manual" type="number" min="0" step="0.01" placeholder="Déjalo vacío para usar el precio normal del evento">
       </div>
-      <div class="fila-acciones"><button class="btn" id="b-registrar">Registrar y generar boletos</button></div>
+      <div id="c-apartado-caja" style="display:none">
+        <div class="duo">
+          <div class="campo"><label for="c-anticipo">Anticipo recibido</label><input id="c-anticipo" type="number" min="0" step="0.01" placeholder="Vacío = 50% del total"></div>
+          <div class="campo">
+            <label for="c-metodo-anticipo">Cómo pagó el anticipo</label>
+            <select id="c-metodo-anticipo"><option>Transferencia</option><option>Efectivo</option></select>
+          </div>
+        </div>
+        <div class="campo">
+          <label for="c-vence">Fecha límite para pagar el resto</label>
+          <input id="c-vence" type="date">
+          <p class="zona-nota" id="c-vence-nota">Los lugares quedan apartados hasta esa fecha. Si no liquida a tiempo, se liberan solos y el anticipo no se devuelve.</p>
+        </div>
+      </div>
+      <div class="fila-acciones"><button class="btn" id="b-registrar">Registrar y generar boletos</button><div class="total" id="c-total-venta"></div></div>
     </div>
     <div class="boletos" id="recien"></div>
+
+    <h3 style="margin-top:32px">Apartados de este evento</h3>
+    <p class="ayuda" id="apartados-info"></p>
+    <div id="lista-apartados"><p class="vacio">Elige un evento.</p></div>
   </section>
 
   <!-- PANEL -->
@@ -308,6 +333,7 @@ document.querySelectorAll("nav button").forEach(b=>{
     if(b.dataset.vista==="boletos") cargarBoletos();
     if(b.dataset.vista==="panel") cargarPanel();
     if(b.dataset.vista==="clientes") cargarClientes();
+    if(b.dataset.vista==="vender") cargarApartados();
   };
 });
 
@@ -781,13 +807,14 @@ let mapaVenta = null, mapaVentaEvento = null;
 function resumenMesasVenta(){
   const ids = mapaVenta ? mapaVenta.seleccion() : [];
   const asientos = mapaVenta ? mapaVenta.seleccionAsientos() : [];
-  if(!ids.length && !asientos.length){ $("#c-mesas-resumen").textContent = "Ninguna mesa ni asiento elegido."; return; }
+  if(!ids.length && !asientos.length){ $("#c-mesas-resumen").textContent = "Ninguna mesa ni asiento elegido."; actualizarTotalVenta(); return; }
   let boletos = 0, total = 0;
   const partes = ids.map(id=>{ const i = mapaVenta.info(id); boletos += i.asientos; total += i.mesa; return "Mesa "+id+" ("+(i.area||i.s.nombre)+", "+i.asientos+" personas)"; });
   const porMesa = new Map();
   asientos.forEach(a=>{ if(!porMesa.has(a.mesa)) porMesa.set(a.mesa, []); porMesa.get(a.mesa).push(a.asiento); });
   porMesa.forEach((nums, id)=>{ const i = mapaVenta.info(id); boletos += nums.length; total += (i.pp||0)*nums.length; partes.push("Mesa "+id+" ("+(i.area||i.s.nombre)+"), asiento"+(nums.length>1?"s ":" ")+nums.join(", ")); });
   $("#c-mesas-resumen").textContent = partes.join(" · ") + " — " + boletos + " boletos, precio normal " + pesos(total);
+  actualizarTotalVenta();
 }
 async function pintarMapaVenta(ev){
   try{
@@ -812,8 +839,51 @@ function actualizarZonaVenta(){
   const previa = $("#c-zona").value;
   $("#c-zona").innerHTML = zs.map(z=>`<option value="${z.id}">${escapar(z.nombre)} — ${pesos(z.precio/(z.personas||1))} por boleto · quedan ${z.disponibles}</option>`).join("");
   if(previa && zs.some(z=>z.id===previa)) $("#c-zona").value = previa;
+  actualizarTotalVenta();
+  cargarApartados();
 }
 $("#sel-evento-vender").addEventListener("change", actualizarZonaVenta);
+function esApartado(){ return $("#c-tipo").value === "apartado"; }
+// Total con el precio normal (o el especial, si se escribió) de lo elegido.
+function totalVentaActual(){
+  const ev = eventos.find(e=>e.id===$("#sel-evento-vender").value);
+  if(!ev) return {total:0, boletos:0};
+  const especial = $("#c-precio-manual").value.trim();
+  let total = 0, boletos = 0;
+  if(ev.mapaId){
+    if(!mapaVenta) return {total:0, boletos:0};
+    mapaVenta.seleccion().forEach(id=>{ const i = mapaVenta.info(id); boletos += i.asientos; total += i.mesa; });
+    mapaVenta.seleccionAsientos().forEach(a=>{ const i = mapaVenta.info(a.mesa); boletos += 1; total += (i.pp||0); });
+  }else{
+    boletos = Math.max(1, parseInt($("#c-cantidad").value||1));
+    const z = (ev.zonas||[]).find(x=>x.id===$("#c-zona").value);
+    total = boletos * (z ? z.precio/(z.personas||1) : (ev.precio||0));
+  }
+  if(especial!=="") total = boletos * (Number(especial)||0);
+  return {total: Math.round(total*100)/100, boletos};
+}
+function actualizarTotalVenta(){
+  const ap = esApartado();
+  $("#c-apartado-caja").style.display = ap ? "" : "none";
+  $("#c-metodo-caja").style.display = ap ? "none" : "";
+  $("#b-registrar").textContent = ap ? "Registrar apartado" : "Registrar y generar boletos";
+  const {total} = totalVentaActual();
+  $("#c-total-venta").textContent = total ? pesos(total) : "";
+  $("#c-anticipo").placeholder = total ? "Vacío = 50%: " + pesos(Math.round(total*50)/100) : "Vacío = 50% del total";
+}
+["#c-tipo","#c-cantidad","#c-zona","#c-precio-manual"].forEach(id=> $(id).addEventListener("input", actualizarTotalVenta));
+$("#c-tipo").addEventListener("change", actualizarTotalVenta);
+
+function mostrarBoletosRecien(r, nombre, telefono){
+  const cont = $("#recien");
+  cont.innerHTML = botonWhatsApp(r, nombre, telefono) + r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
+    <h3>${escapar(b.nombre)}</h3><div class="folio">${b.folio}</div>
+    <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}${lugarTexto(b)?" · "+escapar(lugarTexto(b)):""}</div>
+  </div><div class="talon"><div class="qr" data-folio="${b.folio}"></div></div></article>`).join("");
+  cont.querySelectorAll(".qr").forEach(d=> new QRCode(d, {text:d.dataset.folio, width:100, height:100}));
+  cont.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
 $("#b-registrar").onclick = async ()=>{
   const eventoId = $("#sel-evento-vender").value;
   if(!eventoId){ alert("Crea un evento primero."); return; }
@@ -830,21 +900,108 @@ $("#b-registrar").onclick = async ()=>{
     cuerpo.asientos = mapaVenta ? mapaVenta.seleccionAsientos() : [];
     if(!cuerpo.mesas.length && !cuerpo.asientos.length){ alert("Elige al menos una mesa o un asiento en el mapa."); return; }
   }
+  const apartado = esApartado();
+  if(apartado){
+    cuerpo.anticipo = $("#c-anticipo").value.trim();
+    cuerpo.metodoAnticipo = $("#c-metodo-anticipo").value;
+    cuerpo.vence = $("#c-vence").value;
+  }
   try{
-    const r = await api("/api/ventas-manuales", {method:"POST", body: JSON.stringify(cuerpo)});
+    const r = await api(apartado ? "/api/apartados" : "/api/ventas-manuales", {method:"POST", body: JSON.stringify(cuerpo)});
     if(r && r.error){ alert(r.error); return; }
-    const cont = $("#recien");
-    const telefonoEnviado = cuerpo.telefono;
-    cont.innerHTML = botonWhatsApp(r, nombre, telefonoEnviado) + r.boletos.map(b=>`<article class="boleto"><div class="cuerpo">
-      <h3>${escapar(b.nombre)}</h3><div class="folio">${b.folio}</div>
-      <div style="margin-top:8px;font-size:13px;color:#6B6458">${b.precio>0?pesos(b.precio):"Cortesía"} · ${escapar(b.metodo)}${lugarTexto(b)?" · "+escapar(lugarTexto(b)):""}</div>
-    </div><div class="talon"><div class="qr" data-folio="${b.folio}"></div></div></article>`).join("");
-    cont.querySelectorAll(".qr").forEach(d=> new QRCode(d, {text:d.dataset.folio, width:100, height:100}));
-    $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-telefono").value=""; $("#c-cantidad").value=1; $("#c-precio-manual").value="";
+    if(apartado){
+      $("#recien").innerHTML = `<div class="panel-caja" style="grid-column:1/-1"><strong>Apartado registrado.</strong> ${escapar(r.apartado.lugares)} · Anticipo ${pesos(r.apartado.anticipo)} · Resta ${pesos(r.apartado.resto)} antes del ${escapar(fechaLegible(r.apartado.venceDia))}.
+        <div style="margin-top:12px">${botonAvisoApartado(r.apartado, r.evento, "Mandar confirmación por WhatsApp")}</div></div>`;
+    }else{
+      mostrarBoletosRecien(r, nombre, cuerpo.telefono);
+    }
+    $("#c-nombre").value=""; $("#c-contacto").value=""; $("#c-telefono").value=""; $("#c-cantidad").value=1; $("#c-precio-manual").value=""; $("#c-anticipo").value="";
     if(mapaVenta) mapaVenta.limpiar();
     cargarEventos();
-  }catch(e){ alert("No se pudo registrar la venta (¿se llenó el cupo?)"); }
+  }catch(e){ alert(apartado ? "No se pudo registrar el apartado." : "No se pudo registrar la venta (¿se llenó el cupo?)"); }
 };
+
+/* ---------- Apartados ---------- */
+function textoAvisoApartado(a, ev){
+  const fecha = ev && ev.fecha ? " ("+fechaLegible(ev.fecha)+")" : "";
+  return `Hola ${a.nombre}, tu apartado para ${ev ? ev.nombre : "el evento"}${fecha} está confirmado: ${a.lugares}. `
+    + `Anticipo recibido: ${pesos(a.anticipo)}. Resta pagar ${pesos(a.resto)} antes del ${fechaLegible(a.venceDia)}. `
+    + `Si no se liquida a tiempo, los lugares se liberan y el anticipo no se devuelve.`;
+}
+function botonAvisoApartado(a, ev, texto){
+  const url = `https://wa.me/${numeroWhatsApp(a.telefono)}?text=${encodeURIComponent(textoAvisoApartado(a, ev))}`;
+  return `<a class="btn" href="${url}" target="_blank" rel="noopener" style="background:#25D366;border-color:#25D366;color:#0b1f12;text-decoration:none">${escapar(texto)}</a>`;
+}
+let ultimosApartados = null;
+async function cargarApartados(){
+  const eventoId = $("#sel-evento-vender").value;
+  if(!eventoId){ $("#lista-apartados").innerHTML = '<p class="vacio">Elige un evento.</p>'; $("#apartados-info").textContent = ""; return; }
+  let r;
+  try{ r = await api("/api/apartados?eventoId="+encodeURIComponent(eventoId)); }catch(e){ return; }
+  if(!r || r.error || eventoId !== $("#sel-evento-vender").value) return;
+  ultimosApartados = r;
+  const info = r.info || {};
+  $("#apartados-info").textContent = info.ultimoDia
+    ? (info.disponible ? `Los clientes pueden pedir apartado por WhatsApp hasta el ${fechaLegible(info.ultimoDia)}.` : `El botón de apartar ya no aparece en la página (cerró el ${fechaLegible(info.ultimoDia)}). Aquí todavía puedes registrar uno.`)
+    : "Este evento no tiene fecha: los clientes no ven el botón de apartar.";
+  if(info.vence && (!$("#c-vence").value || $("#c-vence").dataset.evento !== eventoId)){ $("#c-vence").value = info.vence; $("#c-vence").dataset.evento = eventoId; }
+  const lista = r.apartados || [];
+  if(!lista.length){ $("#lista-apartados").innerHTML = '<p class="vacio">Sin apartados todavía.</p>'; return; }
+  const etiquetas = {vigente:["Vigente","rgba(242,167,27,.2)","var(--ambar)"], vencido:["Vencido","rgba(215,38,61,.18)","#ff8a98"], liquidado:["Liquidado","rgba(46,125,79,.22)","#6FD39B"], cancelado:["Cancelado","rgba(255,255,255,.08)","var(--humo)"]};
+  $("#lista-apartados").innerHTML = lista.map(a=>{
+    const [txt,bg,fg] = etiquetas[a.estado];
+    const abierto = a.estado==="vigente" || a.estado==="vencido";
+    const contacto = [a.telefono, a.contacto].filter(Boolean).join(" · ");
+    return `<div class="panel-caja" style="margin-bottom:12px" data-apartado="${a.id}">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><strong>${escapar(a.nombre)}</strong>${contacto?` <span style="color:var(--humo);font-size:13px">${escapar(contacto)}</span>`:""}</div>
+        <span class="estado" style="background:${bg};color:${fg}">${txt}</span>
+      </div>
+      <div style="margin-top:6px;font-size:14px">${escapar(a.lugares)}</div>
+      <div style="margin-top:6px;font-size:14px;color:var(--humo)">Total ${pesos(a.total)} · Anticipo ${pesos(a.anticipo)} (${escapar(a.metodoAnticipo||"")})
+        ${a.estado==="liquidado" ? " · Resto pagado en "+escapar((a.metodo||"").toLowerCase())+", boletos generados"
+          : a.estado==="cancelado" ? " · Cancelado"
+          : ` · Resta <strong style="color:var(--papel)">${pesos(a.resto)}</strong> · Límite: ${escapar(fechaLegible(a.venceDia))}`}</div>
+      ${a.estado==="vencido" ? '<p class="zona-nota" style="margin:8px 0 0">Ya venció: sus lugares se liberaron. Puedes liquidarlo o darle más tiempo solo si siguen libres.</p>' : ""}
+      ${abierto ? `<div class="fila-acciones" style="margin-top:12px">
+        <select data-metodo aria-label="Cómo pagó el resto" style="width:auto"><option>Efectivo</option><option>Transferencia</option></select>
+        <button class="btn" data-liquidar>Liquidar y generar boletos</button>
+        <input type="date" data-fecha value="${escapar(a.venceDia)}" aria-label="Nueva fecha límite" style="width:auto">
+        <button class="btn claro" data-plazo>Cambiar fecha límite</button>
+        ${botonAvisoApartado(a, r.evento, "Recordar por WhatsApp")}
+        <button class="btn claro" data-cancelar>Cancelar apartado</button>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+  $("#lista-apartados").querySelectorAll("[data-apartado]").forEach(caja=>{
+    const id = caja.dataset.apartado;
+    const a = lista.find(x=>x.id===id);
+    const accion = async (ruta, opciones, alTerminar)=>{
+      try{
+        const res = await api(ruta, opciones);
+        if(res && res.error){ alert(res.error); return; }
+        if(alTerminar) alTerminar(res);
+        cargarEventos();
+      }catch(e){ alert("No se pudo completar. Revisa tu conexión e intenta de nuevo."); }
+    };
+    const liq = caja.querySelector("[data-liquidar]");
+    if(liq) liq.onclick = ()=>{
+      const metodo = caja.querySelector("[data-metodo]").value;
+      if(!confirm(`¿${a.nombre} ya pagó el resto (${pesos(a.resto)}) en ${metodo.toLowerCase()}? Se generan sus ${a.boletos} boletos.`)) return;
+      accion("/api/apartados/"+id+"/liquidar", {method:"POST", body: JSON.stringify({metodo})}, res=>mostrarBoletosRecien(res, a.nombre, a.telefono));
+    };
+    const plazo = caja.querySelector("[data-plazo]");
+    if(plazo) plazo.onclick = ()=>{
+      const vence = caja.querySelector("[data-fecha]").value;
+      accion("/api/apartados/"+id+"/plazo", {method:"PUT", body: JSON.stringify({vence})}, ()=>alert("Listo: nueva fecha límite "+fechaLegible(vence)+"."));
+    };
+    const cancelar = caja.querySelector("[data-cancelar]");
+    if(cancelar) cancelar.onclick = ()=>{
+      if(!confirm(`¿Cancelar el apartado de ${a.nombre}? Sus lugares se liberan ahora para venderse a otras personas.`)) return;
+      accion("/api/apartados/"+id+"/cancelar", {method:"POST"});
+    };
+  });
+}
 
 /* ---------- Panel ---------- */
 async function cargarPanel(){

@@ -37,6 +37,12 @@ messages are in Spanish; keep it that way.
 - Seat sales: `estadoAsientos()` holds seats like tables (tickets + recent `pendiente` sales).
   A table sold or held whole can't switch to seats, and a table with seats sold or held
   can't switch back to whole (`PUT /api/eventos/:id/por-asiento` enforces this).
+- Apartados (deposit holds, arranged by WhatsApp, never through Mercado Pago): ventas with
+  `apartado: true`, `estado: "apartado"` hold their seats until `vence`. `retieneLugar()` is the
+  single rule for what holds seats (MP `pendiente` < 20 min, or an unexpired apartado), so use it
+  in any new capacity check. Tickets are issued only on `liquidar`; expired apartados release
+  automatically. Customers can request one until `DIAS_CIERRE_APARTADOS` (10) days before the
+  event; each gets `DIAS_PARA_LIQUIDAR` (7) days.
 
 ## Running locally
 ```

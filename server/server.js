@@ -288,6 +288,28 @@ function folioNuevo(i) {
 // el cupo de otros mientras tanto.
 const VENTANA_RESERVA_MS = 20 * 60 * 1000; // 20 minutos
 
+// Apartados con anticipo (se arreglan por WhatsApp, no pasan por Mercado Pago):
+// el cliente paga un anticipo y sus lugares quedan apartados hasta "vence".
+// Se puede apartar hasta DIAS_CIERRE_APARTADOS días antes del evento, y cada
+// apartado tiene DIAS_PARA_LIQUIDAR días para pagar el resto. Con 10 y 7, el
+// último apartado vence 3 días antes del evento, y esos 3 días quedan para
+// volver a vender lo que no se liquidó. Si no se liquida a tiempo, los lugares
+// se liberan solos (el anticipo no se devuelve).
+const DIAS_CIERRE_APARTADOS = 10;
+const DIAS_PARA_LIQUIDAR = 7;
+
+// ¿Esta venta tiene lugares tomados ahora mismo (sin boletos emitidos todavía)?
+//  - "pendiente": alguien está pagando en Mercado Pago (VENTANA_RESERVA_MS).
+//  - "apartado": anticipo recibido; aparta hasta su fecha límite (vence).
+function retieneLugar(v, ahora = Date.now()) {
+  if (v.estado === "pendiente") {
+    const creado = v.creado ? new Date(v.creado).getTime() : 0;
+    return ahora - creado < VENTANA_RESERVA_MS;
+  }
+  if (v.estado === "apartado") return ahora < new Date(v.vence).getTime();
+  return false;
+}
+
 // Cuántos lugares ya están tomados de un evento: boletos ya emitidos más
 // ventas pendientes de pago RECIENTES (para no vender de más mientras
 // alguien todavía está pagando en Mercado Pago, sin dejar bloqueado el
@@ -296,11 +318,7 @@ function ocupadosDe(db, eventoId) {
   const ahora = Date.now();
   const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId).length;
   const enPendientes = db.ventas
-    .filter((v) => {
-      if (v.eventoId !== eventoId || v.estado !== "pendiente") return false;
-      const creado = v.creado ? new Date(v.creado).getTime() : 0;
-      return ahora - creado < VENTANA_RESERVA_MS;
-    })
+    .filter((v) => v.eventoId === eventoId && retieneLugar(v, ahora))
     .reduce((s, v) => s + v.cantidad, 0);
   return enBoletos + enPendientes;
 }
@@ -314,6 +332,35 @@ function hoyMX(ahora = Date.now()) {
     timeZone: "America/Mexico_City",
     year: "numeric", month: "2-digit", day: "2-digit",
   }).format(new Date(ahora - 6 * 3600 * 1000));
+}
+
+/* ---------------- Apartados: fechas ---------------- */
+// Fechas "AAAA-MM-DD" (días de calendario, sin hora).
+function sumarDias(fecha, n) {
+  const [y, m, d] = String(fecha).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+function esFechaDia(f) {
+  return typeof f === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f) && !Number.isNaN(Date.parse(f + "T00:00:00Z"));
+}
+// Último segundo de ese día en hora de México.
+function finDelDiaMX(fecha) {
+  return new Date(`${fecha}T23:59:59-06:00`).toISOString();
+}
+// Si hoy se puede apartar este evento y cuál sería la fecha límite para liquidar:
+// 7 días, pero nunca después de 3 días antes del evento (para que haya
+// tiempo de volver a vender lo que no se liquidó).
+function infoApartado(evento, hoy = hoyMX()) {
+  if (!esFechaDia(evento?.fecha)) return { disponible: false };
+  const ultimoDia = sumarDias(evento.fecha, -DIAS_CIERRE_APARTADOS);
+  const tope = sumarDias(evento.fecha, -(DIAS_CIERRE_APARTADOS - DIAS_PARA_LIQUIDAR));
+  let vence = sumarDias(hoy, DIAS_PARA_LIQUIDAR);
+  if (vence > tope) vence = tope < hoy ? hoy : tope;
+  return { disponible: hoy <= ultimoDia, ultimoDia, vence, dias: DIAS_PARA_LIQUIDAR };
+}
+// Apartados de un evento que todavía tienen sus lugares tomados.
+function apartadosVigentes(db, eventoId, ahora = Date.now()) {
+  return db.ventas.filter((v) => v.eventoId === eventoId && v.estado === "apartado" && retieneLugar(v, ahora));
 }
 
 /* ---------------- Zonas (precios distintos dentro de un mismo evento) ---------------- */
@@ -359,11 +406,7 @@ function ocupadosZona(db, eventoId, zonaId) {
   const ahora = Date.now();
   const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId && b.zonaId === zonaId).length;
   const enPendientes = db.ventas
-    .filter((v) => {
-      if (v.eventoId !== eventoId || v.estado !== "pendiente") return false;
-      const creado = v.creado ? new Date(v.creado).getTime() : 0;
-      return ahora - creado < VENTANA_RESERVA_MS;
-    })
+    .filter((v) => v.eventoId === eventoId && retieneLugar(v, ahora))
     .reduce((s, v) => {
       const enLineas = Array.isArray(v.lineas)
         ? v.lineas.filter((l) => l.zonaId === zonaId).reduce((t, l) => t + l.cantidad * l.personas, 0)
@@ -422,7 +465,8 @@ function aplicarMapaAEvento(evento, mapa, zonas) {
   evento.precio = Math.min(...zonas.map(precioPorBoleto));
 }
 // Mesas no disponibles: "vendida" (ya tiene boletos) o "apartada" (alguien
-// está pagando en Mercado Pago; se libera sola pasada la ventana de reserva).
+// está pagando en Mercado Pago, o hay un apartado con anticipo; se liberan
+// solas pasada la ventana de reserva o la fecha límite del apartado).
 function estadoMesas(db, evento) {
   const estado = new Map();
   for (const b of db.boletos) {
@@ -430,9 +474,7 @@ function estadoMesas(db, evento) {
   }
   const ahora = Date.now();
   for (const v of db.ventas) {
-    if (v.eventoId !== evento.id || v.estado !== "pendiente") continue;
-    const creado = v.creado ? new Date(v.creado).getTime() : 0;
-    if (ahora - creado >= VENTANA_RESERVA_MS) continue;
+    if (v.eventoId !== evento.id || !retieneLugar(v, ahora)) continue;
     const ids = [...(Array.isArray(v.mesas) ? v.mesas : []), ...(Array.isArray(v.asientos) ? v.asientos : [])].map((m) => String(m.mesaId));
     for (const id of ids) if (!estado.has(id)) estado.set(id, "apartada");
   }
@@ -462,9 +504,7 @@ function estadoAsientos(db, evento, mapa) {
   }
   const ahora = Date.now();
   for (const v of db.ventas) {
-    if (v.eventoId !== evento.id || v.estado !== "pendiente") continue;
-    const creado = v.creado ? new Date(v.creado).getTime() : 0;
-    if (ahora - creado >= VENTANA_RESERVA_MS) continue;
+    if (v.eventoId !== evento.id || !retieneLugar(v, ahora)) continue;
     for (const m of Array.isArray(v.mesas) ? v.mesas : []) toda(m.mesaId, "apartado");
     for (const a of Array.isArray(v.asientos) ? v.asientos : []) marcar(a.mesaId, Number(a.asiento), "apartado");
   }
@@ -533,7 +573,7 @@ function expiracionMP(minutos) {
 // cuántos lugares quedan en cada una.
 function conOcupacion(db, e) {
   const zonas = zonasDe(e);
-  const salida = { ...e, vendidos: ocupadosDe(db, e.id) };
+  const salida = { ...e, vendidos: ocupadosDe(db, e.id), apartado: infoApartado(e) };
   if (zonas.length) {
     salida.zonas = zonas.map((z) => {
       const vendidos = ocupadosZona(db, e.id, z.id);
@@ -920,6 +960,9 @@ app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
     if ((evento.mapaId || "") !== quiereMapa && tieneBoletos) {
       return res.status(409).json({ error: "No puedes cambiar el mapa de un evento que ya vendió boletos." });
     }
+    if ((evento.mapaId || "") !== quiereMapa && apartadosVigentes(db, evento.id).length) {
+      return res.status(409).json({ error: "No puedes cambiar el mapa de un evento con apartados vigentes." });
+    }
     if (quiereMapa) {
       const mapa = cargarMapa(quiereMapa);
       if (!mapa) return res.status(400).json({ error: "Ese mapa no existe." });
@@ -950,9 +993,10 @@ app.put("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
         return res.status(409).json({ error: "Este evento ya vendió boletos sin zona; no se le pueden agregar zonas." });
       }
       const usadas = new Set(boletosEv.filter((b) => b.zonaId).map((b) => b.zonaId));
+      for (const v of apartadosVigentes(db, evento.id)) for (const l of v.lineas || []) if (l.zonaId) usadas.add(l.zonaId);
       for (const id of usadas) {
         if (!zs.some((z) => z.id === id)) {
-          return res.status(409).json({ error: "No puedes quitar una zona que ya tiene boletos vendidos." });
+          return res.status(409).json({ error: "No puedes quitar una zona que ya tiene boletos vendidos o apartados." });
         }
       }
       for (const z of zs) {
@@ -1000,7 +1044,7 @@ app.put("/api/eventos/:id/por-asiento", requiereAdmin, seguro(async (req, res) =
     if (!mapa) return res.status(400).json({ error: "Este evento no tiene mapa de mesas." });
     const actuales = mesasPorAsiento(evento);
     const ahora = Date.now();
-    const vigente = (v) => v.eventoId === evento.id && v.estado === "pendiente" && ahora - (v.creado ? new Date(v.creado).getTime() : 0) < VENTANA_RESERVA_MS;
+    const vigente = (v) => v.eventoId === evento.id && retieneLugar(v, ahora);
     const completas = new Set(), sueltas = new Set();
     for (const b of db.boletos) {
       if (b.eventoId !== evento.id || !b.mesaId) continue;
@@ -1036,6 +1080,9 @@ app.delete("/api/eventos/:id", requiereAdmin, seguro(async (req, res) => {
     const tieneBoletos = db.boletos.some((b) => b.eventoId === req.params.id);
     if (tieneBoletos) {
       return res.status(409).json({ error: "Este evento ya tiene boletos emitidos; no se puede borrar." });
+    }
+    if (apartadosVigentes(db, req.params.id).length) {
+      return res.status(409).json({ error: "Este evento tiene apartados vigentes; cancélalos antes de borrarlo." });
     }
     db.eventos = db.eventos.filter((e) => e.id !== req.params.id);
     await escribirDB(db);
@@ -1575,6 +1622,85 @@ app.post("/api/admin/reconciliar-pagos", requiereAdmin, seguro(async (req, res) 
 }));
 
 // -------- Admin: venta manual (efectivo/cortesía/promoción en puerta) --------
+// Revisa los lugares pedidos de una venta manual o de un apartado y arma el
+// "plan": un elemento por boleto que se va a emitir. Devuelve { plan, asientos }
+// o { status, error } si algo ya no está disponible.
+function armarPlanManual(db, evento, { mesas, asientos, cantidad, zonaId }) {
+  const plan = [];
+  const mapa = mapaDe(evento);
+  let asientosManual = [];
+  const mesasPedidas = Array.isArray(mesas) ? [...new Set(mesas.map(String))] : [];
+  if (mapa) {
+    // Evento con mesas: mesas completas (un boleto por asiento) y/o asientos
+    // sueltos de las mesas que se venden por asiento.
+    const revision = revisarAsientosPedidos(db, evento, mapa, asientos, { max: 100 });
+    if (revision.error) return revision;
+    asientosManual = revision.asientos;
+    if (!mesasPedidas.length && !asientosManual.length) return { status: 400, error: "Elige al menos una mesa o un asiento." };
+    const estado = estadoMesas(db, evento);
+    const porAsiento = mesasPorAsiento(evento);
+    for (const id of mesasPedidas) {
+      const mesa = mapa.mesas.find((m) => m.id === id);
+      if (!mesa) return { status: 400, error: `La mesa ${id} no existe.` };
+      if (porAsiento.has(id)) return { status: 409, error: `La mesa ${id} se vende por asiento: elige los asientos.` };
+      if (estado.has(id)) return { status: 409, error: `La mesa ${id} ya no está disponible (${estado.get(id)}).` };
+      const z = zonasDe(evento).find((x) => x.id === mesa.seccion);
+      const pp = z ? precioPorBoleto(z) : 0;
+      for (let i = 0; i < mesa.asientos; i++) {
+        plan.push({ zonaId: mesa.seccion, zona: z?.nombre || mesa.seccion, area: mesa.area, mesa: id, base: pp });
+      }
+    }
+    for (const a of asientosManual) {
+      plan.push({ zonaId: a.zonaId, zona: a.zonaNombre, area: a.area, mesa: a.mesaId, asiento: a.asiento, base: a.precioPersona });
+    }
+  } else {
+    // Si el evento tiene zonas, hay que elegir una; "cantidad" son boletos
+    // (personas) y el precio normal es el de un boleto individual de la zona.
+    const zonasEv = zonasDe(evento);
+    let zona = null;
+    if (zonasEv.length) {
+      zona = zonasEv.find((z) => z.id === zonaId);
+      if (!zona) return { status: 400, error: "Elige la zona." };
+      if (ocupadosZona(db, evento.id, zona.id) + cantidad > zona.cupo) {
+        return { status: 409, error: `Ya no hay lugares suficientes en ${zona.nombre}.` };
+      }
+    }
+    const base = zona ? precioPorBoleto(zona) : Number(evento.precio) || 0;
+    for (let i = 0; i < cantidad; i++) {
+      plan.push({ zonaId: zona?.id, zona: zona?.nombre, mesa: null, base });
+    }
+  }
+  if (ocupadosDe(db, evento.id) + plan.length > evento.cupo) return { status: 409, error: "Ya no hay cupo" };
+  return { plan, asientos: asientosManual };
+}
+
+// Emite un boleto por cada elemento del plan (cada uno ya trae su precio).
+function emitirBoletosManuales(db, { eventoId, ventaId, nombre, contacto, telefono, metodo, plan }) {
+  const nuevos = [];
+  for (const p of plan) {
+    const b = {
+      folio: folioNuevo(db.boletos.length + 1),
+      eventoId,
+      ventaId,
+      nombre,
+      contacto,
+      telefono,
+      metodo,
+      precio: p.precio,
+      ...(p.zonaId ? { zonaId: p.zonaId, zona: p.zona } : {}),
+      ...(p.area ? { area: p.area } : {}),
+      ...(p.mesa ? { mesa: p.mesa, mesaId: p.mesa } : {}),
+      ...(p.asiento ? { asiento: p.asiento } : {}),
+      estado: "valido",
+      creado: new Date().toISOString(),
+      usadoEn: null,
+    };
+    db.boletos.push(b);
+    nuevos.push(b);
+  }
+  return nuevos;
+}
+
 app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
   const eventoId = String(req.body?.eventoId || "");
   const nombre = String(req.body?.nombre || "").trim();
@@ -1585,7 +1711,6 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
   const cantidad = Math.max(1, Math.min(100, parseInt(req.body?.cantidad) || 1));
   const metodo = String(req.body?.metodo || "Efectivo");
   const zonaId = String(req.body?.zonaId || "");
-  const mesasPedidas = Array.isArray(req.body?.mesas) ? [...new Set(req.body.mesas.map(String))] : [];
   if (!nombre) return res.status(400).json({ error: "Falta el nombre" });
 
   // Precio especial opcional (por ejemplo, una promoción de mayoreo a un
@@ -1601,61 +1726,17 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
     const evento = db.eventos.find((e) => e.id === eventoId);
     if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
 
-    // "plan" = un elemento por boleto que se va a emitir.
-    const plan = [];
+    const armado = armarPlanManual(db, evento, { mesas: req.body?.mesas, asientos: req.body?.asientos, cantidad, zonaId });
+    if (armado.error) return res.status(armado.status).json({ error: armado.error });
     const mapa = mapaDe(evento);
-    let asientosManual = [];
-    if (mapa) {
-      // Evento con mesas: mesas completas (un boleto por asiento) y/o asientos
-      // sueltos de las mesas que se venden por asiento.
-      const revision = revisarAsientosPedidos(db, evento, mapa, req.body?.asientos, { max: 100 });
-      if (revision.error) return res.status(revision.status).json({ error: revision.error });
-      asientosManual = revision.asientos;
-      if (!mesasPedidas.length && !asientosManual.length) return res.status(400).json({ error: "Elige al menos una mesa o un asiento." });
-      const estado = estadoMesas(db, evento);
-      const porAsiento = mesasPorAsiento(evento);
-      for (const id of mesasPedidas) {
-        const mesa = mapa.mesas.find((m) => m.id === id);
-        if (!mesa) return res.status(400).json({ error: `La mesa ${id} no existe.` });
-        if (porAsiento.has(id)) return res.status(409).json({ error: `La mesa ${id} se vende por asiento: elige los asientos.` });
-        if (estado.has(id)) {
-          return res.status(409).json({ error: `La mesa ${id} ya no está disponible (${estado.get(id)}).` });
-        }
-        const z = zonasDe(evento).find((x) => x.id === mesa.seccion);
-        const pp = z ? precioPorBoleto(z) : 0;
-        for (let i = 0; i < mesa.asientos; i++) {
-          plan.push({ zonaId: mesa.seccion, zona: z?.nombre || mesa.seccion, area: mesa.area, mesa: id, base: pp });
-        }
-      }
-      for (const a of asientosManual) {
-        plan.push({ zonaId: a.zonaId, zona: a.zonaNombre, area: a.area, mesa: a.mesaId, asiento: a.asiento, base: a.precioPersona });
-      }
-    } else {
-      // Si el evento tiene zonas, hay que elegir una; "cantidad" son boletos
-      // (personas) y el precio normal es el de un boleto individual de la zona.
-      const zonasEv = zonasDe(evento);
-      let zona = null;
-      if (zonasEv.length) {
-        zona = zonasEv.find((z) => z.id === zonaId);
-        if (!zona) return res.status(400).json({ error: "Elige la zona." });
-        if (ocupadosZona(db, eventoId, zona.id) + cantidad > zona.cupo) {
-          return res.status(409).json({ error: `Ya no hay lugares suficientes en ${zona.nombre}.` });
-        }
-      }
-      const base = zona ? precioPorBoleto(zona) : Number(evento.precio) || 0;
-      for (let i = 0; i < cantidad; i++) {
-        plan.push({ zonaId: zona?.id, zona: zona?.nombre, mesa: null, base });
-      }
-    }
-    if (ocupadosDe(db, eventoId) + plan.length > evento.cupo) {
-      return res.status(409).json({ error: "Ya no hay cupo" });
-    }
+    const precioDe = (p) => (metodo === "Cortesía" ? 0 : precioManual !== null ? precioManual : p.base);
+    const plan = armado.plan.map((p) => ({ ...p, precio: precioDe(p) }));
+    const asientosManual = armado.asientos;
 
     // Cada venta manual también queda registrada como "venta" (ya pagada) para
     // que tenga su propia página de boletos con QR, que se puede mandar por
     // WhatsApp con el enlace /gracias.html?venta=...
     ventaIdManual = uuid();
-    const precioDe = (p) => (metodo === "Cortesía" ? 0 : precioManual !== null ? precioManual : p.base);
     db.ventas.push({
       id: ventaIdManual,
       eventoId,
@@ -1663,7 +1744,7 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
       contacto,
       telefono,
       cantidad: plan.length,
-      precioUnit: precioDe(plan[0]),
+      precioUnit: plan[0].precio,
       ...(mapa ? { mesas: [...new Set(plan.filter((p) => !p.asiento).map((p) => p.mesa))].map((m) => ({ mesaId: m })) } : {}),
       ...(asientosManual.length ? { asientos: asientosManual.map((a) => ({ mesaId: a.mesaId, asiento: a.asiento })) } : {}),
       estado: "pagado",
@@ -1671,28 +1752,7 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
       metodo,
       creado: new Date().toISOString(),
     });
-    const nuevos = [];
-    for (const p of plan) {
-      const b = {
-        folio: folioNuevo(db.boletos.length + 1),
-        eventoId,
-        ventaId: ventaIdManual,
-        nombre,
-        contacto,
-        telefono,
-        metodo,
-        precio: precioDe(p),
-        ...(p.zonaId ? { zonaId: p.zonaId, zona: p.zona } : {}),
-        ...(p.area ? { area: p.area } : {}),
-        ...(p.mesa ? { mesa: p.mesa, mesaId: p.mesa } : {}),
-        ...(p.asiento ? { asiento: p.asiento } : {}),
-        estado: "valido",
-        creado: new Date().toISOString(),
-        usadoEn: null,
-      };
-      db.boletos.push(b);
-      nuevos.push(b);
-    }
+    const nuevos = emitirBoletosManuales(db, { eventoId, ventaId: ventaIdManual, nombre, contacto, telefono, metodo, plan });
     await escribirDB(db);
     eventoParaCorreo = evento;
     boletosParaCorreo = nuevos;
@@ -1704,6 +1764,244 @@ app.post("/api/ventas-manuales", requiereAdmin, seguro(async (req, res) => {
   if (eventoParaCorreo && boletosParaCorreo) {
     enviarBoletosPorEmail({ evento: eventoParaCorreo, nombre, contacto, boletos: boletosParaCorreo });
   }
+}));
+
+// -------- Admin: apartados con anticipo (arreglados por WhatsApp) --------
+// El organizador registra el apartado cuando ya recibió el anticipo. Los
+// lugares quedan tomados hasta la fecha límite; al liquidar se emiten los
+// boletos. Si vence sin liquidar, los lugares se liberan solos y el
+// anticipo no se devuelve (no pasa por Mercado Pago).
+const redondear = (n) => Math.round(n * 100) / 100;
+function textoLugares(plan) {
+  const mesas = new Map(), sueltos = new Map(), zonas = new Map();
+  for (const p of plan) {
+    if (p.mesa && p.asiento) {
+      if (!sueltos.has(p.mesa)) sueltos.set(p.mesa, { area: p.area || p.zona, nums: [] });
+      sueltos.get(p.mesa).nums.push(p.asiento);
+    } else if (p.mesa) {
+      if (!mesas.has(p.mesa)) mesas.set(p.mesa, { area: p.area || p.zona, n: 0 });
+      mesas.get(p.mesa).n++;
+    } else {
+      const k = p.zona || "";
+      zonas.set(k, (zonas.get(k) || 0) + 1);
+    }
+  }
+  return [
+    ...[...mesas].map(([id, m]) => `Mesa ${id} (${m.area}, ${m.n} personas)`),
+    ...[...sueltos].map(([id, m]) => `Mesa ${id} (${m.area}), asiento${m.nums.length > 1 ? "s" : ""} ${m.nums.join(", ")}`),
+    ...[...zonas].map(([z, n]) => `${n} boleto${n > 1 ? "s" : ""}${z ? " de " + z : ""}`),
+  ].join(" · ");
+}
+// ¿Siguen libres los lugares de un apartado ya vencido? (para liquidarlo o
+// darle más tiempo). Como ya venció, sus propios lugares no cuentan.
+function revisarApartadoVencido(db, evento, v) {
+  const mapa = mapaDe(evento);
+  if (mapa) {
+    const estado = estadoMesas(db, evento);
+    const porAsiento = mesasPorAsiento(evento);
+    for (const m of v.mesas || []) {
+      if (!mapa.mesas.some((x) => String(x.id) === String(m.mesaId))) return `La mesa ${m.mesaId} ya no existe en el mapa.`;
+      if (porAsiento.has(String(m.mesaId))) return `La mesa ${m.mesaId} ahora se vende por asiento.`;
+      if (estado.has(String(m.mesaId))) return `La mesa ${m.mesaId} ya se vendió o apartó a otra persona.`;
+    }
+    if ((v.asientos || []).length) {
+      const ocupados = estadoAsientos(db, evento, mapa);
+      for (const a of v.asientos) {
+        if (!porAsiento.has(String(a.mesaId))) return `La mesa ${a.mesaId} ahora se vende completa.`;
+        if (ocupados.get(String(a.mesaId))?.has(Number(a.asiento))) return `El asiento ${a.asiento} de la mesa ${a.mesaId} ya se vendió o apartó a otra persona.`;
+      }
+    }
+  } else {
+    for (const l of v.lineas || []) {
+      const z = zonasDe(evento).find((x) => x.id === l.zonaId);
+      if (!z) return "La zona de este apartado ya no existe.";
+      if (ocupadosZona(db, evento.id, z.id) + l.cantidad * l.personas > z.cupo) return `Ya no hay lugares suficientes en ${z.nombre}.`;
+    }
+  }
+  if (ocupadosDe(db, evento.id) + v.cantidad > evento.cupo) return "Ya no hay cupo.";
+  return null;
+}
+function resumenApartado(v, ahora = Date.now()) {
+  const estado = v.estado === "apartado" ? (retieneLugar(v, ahora) ? "vigente" : "vencido")
+    : v.estado === "cancelado" ? "cancelado" : "liquidado";
+  return {
+    id: v.id, nombre: v.nombre, contacto: v.contacto || "", telefono: v.telefono || "",
+    lugares: textoLugares(v.plan || []), boletos: v.cantidad,
+    total: v.total, anticipo: v.anticipo, metodoAnticipo: v.metodoAnticipo, resto: redondear(v.total - v.anticipo),
+    venceDia: v.venceDia, creado: v.creado, estado,
+    ...(v.liquidado ? { liquidado: v.liquidado, metodo: v.metodo } : {}),
+    ...(v.cancelado ? { cancelado: v.cancelado } : {}),
+  };
+}
+function validarVence(texto, evento, hoy = hoyMX()) {
+  if (!esFechaDia(texto)) return "La fecha límite no es válida.";
+  if (texto < hoy) return "La fecha límite ya pasó.";
+  if (esFechaDia(evento.fecha) && texto > evento.fecha) return "La fecha límite no puede ser después del evento.";
+  return null;
+}
+
+app.get("/api/apartados", requiereAdmin, seguro(async (req, res) => {
+  const db = await leerDB();
+  const eventoId = String(req.query.eventoId || "");
+  const evento = db.eventos.find((e) => e.id === eventoId);
+  if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
+  const orden = { vigente: 0, vencido: 1, liquidado: 2, cancelado: 3 };
+  const apartados = db.ventas
+    .filter((v) => v.eventoId === eventoId && v.apartado)
+    .map((v) => resumenApartado(v))
+    .sort((a, b) => orden[a.estado] - orden[b.estado] || String(a.venceDia).localeCompare(String(b.venceDia)));
+  res.json({ apartados, info: infoApartado(evento), evento: { nombre: evento.nombre, fecha: evento.fecha } });
+}));
+
+app.post("/api/apartados", requiereAdmin, seguro(async (req, res) => {
+  const eventoId = String(req.body?.eventoId || "");
+  const nombre = String(req.body?.nombre || "").trim();
+  const contacto = String(req.body?.contacto || "").trim();
+  const telefono = String(req.body?.telefono || "").trim();
+  const cantidad = Math.max(1, Math.min(100, parseInt(req.body?.cantidad) || 1));
+  const zonaId = String(req.body?.zonaId || "");
+  const metodoAnticipo = String(req.body?.metodoAnticipo || "Transferencia");
+  if (!nombre) return res.status(400).json({ error: "Falta el nombre" });
+  if (metodoAnticipo === "Cortesía") return res.status(400).json({ error: "Un apartado necesita un anticipo pagado; las cortesías se registran como venta." });
+  const precioManualTexto = String(req.body?.precioManual ?? "").trim();
+  const precioManual = precioManualTexto === "" ? null : Math.max(0, Number(precioManualTexto) || 0);
+  const anticipoTexto = String(req.body?.anticipo ?? "").trim();
+
+  await conCandado(async () => {
+    const db = await leerDB();
+    const evento = db.eventos.find((e) => e.id === eventoId);
+    if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
+    const hoy = hoyMX();
+    if (esFechaDia(evento.fecha) && evento.fecha < hoy) return res.status(409).json({ error: "Ese evento ya pasó." });
+
+    const armado = armarPlanManual(db, evento, { mesas: req.body?.mesas, asientos: req.body?.asientos, cantidad, zonaId });
+    if (armado.error) return res.status(armado.status).json({ error: armado.error });
+    const plan = armado.plan.map((p) => ({ ...p, precio: precioManual !== null ? precioManual : p.base }));
+    const total = redondear(plan.reduce((t, p) => t + p.precio, 0));
+    if (total <= 0) return res.status(400).json({ error: "El total es $0; regístralo como venta (cortesía)." });
+    const anticipo = anticipoTexto === "" ? redondear(total / 2) : redondear(Number(anticipoTexto));
+    if (!(anticipo > 0)) return res.status(400).json({ error: "Escribe el anticipo recibido." });
+    if (anticipo >= total) return res.status(400).json({ error: "Si ya pagó todo, regístralo como venta y no como apartado." });
+
+    const venceTexto = String(req.body?.vence || "").trim();
+    const venceDia = venceTexto || infoApartado(evento, hoy).vence || sumarDias(hoy, DIAS_PARA_LIQUIDAR);
+    const errVence = validarVence(venceDia, evento, hoy);
+    if (errVence) return res.status(400).json({ error: errVence });
+
+    // Forma de "retener lugares" igual que una compra pendiente, para que el
+    // mapa, el cupo y las zonas los cuenten como tomados mientras esté vigente.
+    const mesas = new Map();
+    for (const p of plan) {
+      if (!p.mesa || p.asiento) continue;
+      if (!mesas.has(p.mesa)) mesas.set(p.mesa, { mesaId: p.mesa, zonaId: p.zonaId, asientos: 0 });
+      mesas.get(p.mesa).asientos++;
+    }
+    const asientos = plan.filter((p) => p.asiento).map((p) => ({ mesaId: p.mesa, asiento: p.asiento, zonaId: p.zonaId }));
+    const sinMesa = plan.filter((p) => !p.mesa);
+    const lineas = sinMesa.length && sinMesa[0].zonaId ? [{ zonaId: sinMesa[0].zonaId, cantidad: sinMesa.length, personas: 1 }] : [];
+
+    const v = {
+      id: uuid(),
+      eventoId,
+      nombre,
+      contacto,
+      telefono,
+      cantidad: plan.length,
+      precioUnit: plan[0].precio,
+      ...(mesas.size ? { mesas: [...mesas.values()] } : {}),
+      ...(asientos.length ? { asientos } : {}),
+      ...(lineas.length ? { lineas } : {}),
+      plan,
+      total,
+      anticipo,
+      metodoAnticipo,
+      estado: "apartado",
+      apartado: true,
+      venceDia,
+      vence: finDelDiaMX(venceDia),
+      creado: new Date().toISOString(),
+    };
+    db.ventas.push(v);
+    await escribirDB(db);
+    res.json({ apartado: resumenApartado(v), evento: { nombre: evento.nombre, fecha: evento.fecha } });
+  });
+}));
+
+app.post("/api/apartados/:id/liquidar", requiereAdmin, seguro(async (req, res) => {
+  const metodo = String(req.body?.metodo || "Efectivo");
+  let eventoParaCorreo, boletosParaCorreo, venta;
+  await conCandado(async () => {
+    const db = await leerDB();
+    venta = db.ventas.find((v) => v.id === req.params.id && v.apartado);
+    if (!venta) return res.status(404).json({ error: "Apartado no encontrado" });
+    if (venta.estado !== "apartado") return res.status(409).json({ error: venta.estado === "cancelado" ? "Este apartado se canceló." : "Este apartado ya se liquidó." });
+    const evento = db.eventos.find((e) => e.id === venta.eventoId);
+    if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
+
+    // Nunca emitir dos veces la misma mesa o asiento: si ya hay boletos de
+    // otra venta en esos lugares (algo raro, como un pago muy tardío), se avisa.
+    const ajenos = db.boletos.filter((b) => b.eventoId === evento.id && b.mesaId && b.ventaId !== venta.id);
+    for (const p of venta.plan || []) {
+      if (!p.mesa) continue;
+      const choca = ajenos.find((b) => String(b.mesaId) === String(p.mesa) && (!p.asiento || !b.asiento || Number(b.asiento) === Number(p.asiento)));
+      if (choca) return res.status(409).json({ error: `La mesa ${p.mesa} ya tiene boletos de otra venta. Revísalo antes de liquidar.` });
+    }
+    if (!retieneLugar(venta)) {
+      const err = revisarApartadoVencido(db, evento, venta);
+      if (err) return res.status(409).json({ error: `Este apartado ya venció y no se puede liquidar: ${err}` });
+    }
+
+    const nuevos = emitirBoletosManuales(db, {
+      eventoId: evento.id, ventaId: venta.id, nombre: venta.nombre, contacto: venta.contacto, telefono: venta.telefono,
+      metodo: `Apartado · ${metodo}`, plan: venta.plan,
+    });
+    venta.estado = "pagado";
+    venta.manual = true;
+    venta.metodo = metodo;
+    venta.liquidado = new Date().toISOString();
+    await escribirDB(db);
+    eventoParaCorreo = evento;
+    boletosParaCorreo = nuevos;
+    res.json({ boletos: nuevos, ventaId: venta.id, evento: { nombre: evento.nombre, fecha: evento.fecha }, urlBoletos: `${PUBLIC_URL}/gracias.html?venta=${venta.id}` });
+  });
+  if (eventoParaCorreo && boletosParaCorreo) {
+    enviarBoletosPorEmail({ evento: eventoParaCorreo, nombre: venta.nombre, contacto: venta.contacto, boletos: boletosParaCorreo });
+  }
+}));
+
+app.put("/api/apartados/:id/plazo", requiereAdmin, seguro(async (req, res) => {
+  await conCandado(async () => {
+    const db = await leerDB();
+    const venta = db.ventas.find((v) => v.id === req.params.id && v.apartado);
+    if (!venta) return res.status(404).json({ error: "Apartado no encontrado" });
+    if (venta.estado !== "apartado") return res.status(409).json({ error: "Solo se puede cambiar el plazo de un apartado sin liquidar." });
+    const evento = db.eventos.find((e) => e.id === venta.eventoId);
+    if (!evento) return res.status(404).json({ error: "Evento no encontrado" });
+    const venceDia = String(req.body?.vence || "").trim();
+    const errVence = validarVence(venceDia, evento);
+    if (errVence) return res.status(400).json({ error: errVence });
+    if (!retieneLugar(venta)) {
+      const err = revisarApartadoVencido(db, evento, venta);
+      if (err) return res.status(409).json({ error: `No se puede reactivar: ${err}` });
+    }
+    venta.venceDia = venceDia;
+    venta.vence = finDelDiaMX(venceDia);
+    await escribirDB(db);
+    res.json({ apartado: resumenApartado(venta) });
+  });
+}));
+
+app.post("/api/apartados/:id/cancelar", requiereAdmin, seguro(async (req, res) => {
+  await conCandado(async () => {
+    const db = await leerDB();
+    const venta = db.ventas.find((v) => v.id === req.params.id && v.apartado);
+    if (!venta) return res.status(404).json({ error: "Apartado no encontrado" });
+    if (venta.estado !== "apartado") return res.status(409).json({ error: "Este apartado ya no se puede cancelar." });
+    venta.estado = "cancelado";
+    venta.cancelado = new Date().toISOString();
+    await escribirDB(db);
+    res.json({ apartado: resumenApartado(venta) });
+  });
 }));
 
 // -------- Admin: clientes (junta todos los boletos por comprador) --------
