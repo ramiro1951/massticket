@@ -5,7 +5,6 @@
 
 import "dotenv/config";
 import express from "express";
-import cors from "cors";
 import crypto from "crypto";
 import fs from "fs/promises";
 import { readFileSync } from "fs";
@@ -854,8 +853,53 @@ const app = express();
 // último salto antes del proxy (en producción, el CDN). Para la IP real del
 // visitante se usa ipVisitante().
 app.set("trust proxy", 1);
-app.use(cors());
-app.use(express.json({ limit: "12mb" })); // 12mb: alcanza para el cartel del evento en base64
+app.disable("x-powered-by");
+
+// Encabezados de seguridad para todas las respuestas:
+// - CSP: scripts, estilos, imágenes y conexiones solo del propio sitio (más
+//   Google Fonts). Si alguien lograra meter código en una página, no podría
+//   cargar scripts de otro lado ni mandar datos (por ejemplo, la clave del
+//   panel) a otro servidor. Las páginas usan <script> en línea, por eso
+//   'unsafe-inline'.
+// - frame-ancestors/X-Frame-Options: nadie puede meter el sitio dentro de otra
+//   página (para engañar a alguien y que dé clic en el panel).
+// - Permissions-Policy: solo la cámara (la puerta escanea QR), y solo aquí.
+// - HSTS: el navegador siempre usa https con este sitio.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+app.use((req, res, next) => {
+  res.set({
+    "Content-Security-Policy": CSP,
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(self), microphone=(), geolocation=(), payment=()",
+  });
+  if (req.secure) res.set("Strict-Transport-Security", "max-age=15552000");
+  next();
+});
+
+// Antes se permitía que cualquier otro sitio llamara a la API desde el
+// navegador (CORS abierto); las páginas del propio sitio no lo necesitan,
+// así que ya no se manda ningún encabezado CORS.
+
+// Tamaño máximo de las peticiones: 12mb solo para crear o editar eventos (el
+// cartel va en base64); todo lo demás, 200kb, para que nadie pueda saturar
+// el servidor mandando peticiones enormes a la API pública.
+const jsonEventos = express.json({ limit: "12mb" });
+const jsonNormal = express.json({ limit: "200kb" });
+app.use((req, res, next) => (req.path.startsWith("/api/eventos") ? jsonEventos : jsonNormal)(req, res, next));
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 // Con db.json dañado no se atiende ninguna petición de la API, para que nadie

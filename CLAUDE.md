@@ -77,6 +77,11 @@ persists across restarts and deploys.
 - Never commit `.env`, tokens, or real customer data (`db.json`).
 - Don't change the shape of `db.json` records without a migration that handles existing data.
 - Escape any user-supplied text before putting it in `innerHTML` (use the `escapar()` helpers).
+- Every response carries a Content-Security-Policy (`CSP` in server.js): scripts, styles,
+  images and `fetch` only from the site itself, plus Google Fonts. Don't load anything from
+  another domain (CDN scripts, images, analytics) without adding it to `CSP` and checking
+  the pages in a browser. There is no CORS: the API is only for the site's own pages.
+- Request bodies are capped at 200kb, except `/api/eventos*` (12mb, for poster images).
 
 ## Long-term idea (not current work): multiple promoters
 Someday we may add separate panels so several promoters each manage only their own
