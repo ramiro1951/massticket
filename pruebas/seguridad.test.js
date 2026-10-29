@@ -36,6 +36,22 @@ test("puerta: folio inexistente, y minúsculas o espacios no importan", async ()
   assert.equal((await s.validar("  " + boletos[0].folio.toLowerCase() + " ", ev.id)).datos.resultado, "ok");
 });
 
+test("puerta: los folios viejos (4 letras) siguen entrando", async () => {
+  const ev = await s.crearEvento();
+  s.cambiarDB((db) => {
+    db.boletos.push({ folio: "MT-3F9K-0142", eventoId: ev.id, ventaId: "vieja", nombre: "Cliente anterior", metodo: "Efectivo", precio: 100, estado: "valido", usadoEn: null });
+  });
+  assert.equal((await s.validar("MT-3F9K-0142", ev.id)).datos.resultado, "ok");
+});
+
+test("folios: cada uno tiene 8 letras al azar y no se repiten", async () => {
+  const ev = await s.crearEvento({ cupo: 100 });
+  const r = await s.pedir("/api/ventas-manuales", { metodo: "POST", admin: true, cuerpo: { eventoId: ev.id, nombre: "Grupo", cantidad: 60 } });
+  const folios = r.datos.boletos.map((b) => b.folio);
+  assert.equal(new Set(folios).size, 60);
+  assert.equal(new Set(folios.map((f) => f.slice(3, 12))).size, 60, "la parte al azar no se repite");
+});
+
 test("puerta y panel piden la clave de organizador", async () => {
   assert.equal((await s.pedir("/api/validar", { metodo: "POST", cuerpo: { folio: "X" } })).status, 401);
   assert.equal((await s.pedir("/api/boletos")).status, 401);

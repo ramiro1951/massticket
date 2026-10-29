@@ -272,11 +272,18 @@ async function avisarPorCorreo(asunto, html) {
   }
 }
 
-const ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function folioNuevo(i) {
+// Folio: "MT-K7Q2-X9FD-0142". Las 8 letras salen de un generador seguro
+// (crypto), así que no se pueden adivinar (32^8 ≈ un billón de opciones); el
+// número del final es el consecutivo, que garantiza que no se repita. Los
+// folios viejos (con 4 letras, "MT-3F9K-0142") siguen siendo válidos.
+const ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin I, O, 0 ni 1, que se confunden
+function letrasAlAzar(n) {
   let s = "";
-  for (let k = 0; k < 4; k++) s += ABC[Math.floor(Math.random() * ABC.length)];
-  return "MT-" + s + "-" + String(i).padStart(4, "0");
+  for (let k = 0; k < n; k++) s += ABC[crypto.randomInt(ABC.length)];
+  return s;
+}
+function folioNuevo(i) {
+  return "MT-" + letrasAlAzar(4) + "-" + letrasAlAzar(4) + "-" + String(i).padStart(4, "0");
 }
 
 // Cuánto tiempo se le reserva el lugar a alguien que fue a pagar a Mercado
