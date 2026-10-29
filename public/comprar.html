@@ -19,6 +19,12 @@
   .zona-compra.agotada{opacity:.55}
   .mesa-linea{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:6px 0;border-bottom:1px solid var(--linea)}
   .mesa-linea:last-child{border-bottom:none}
+  /* Explicaciones de pago abajo de la compra: en blanco; Mercado Pago y apartar
+     lado a lado cuando hay apartado (en celular, una debajo de otra). */
+  .notas-pago .ayuda{color:var(--papel);max-width:none}
+  .notas-pago .columnas{display:grid;grid-template-columns:1fr;gap:0 28px;margin-top:14px}
+  .notas-pago .columnas.dos{grid-template-columns:1fr 1fr}
+  @media (max-width:640px){ .notas-pago .columnas.dos{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -78,9 +84,13 @@
       </div>
       <p class="ayuda" style="margin:12px 0 0">Al pasar al pago, tus lugares quedan reservados por <strong>20 minutos</strong>. Si no completas el pago en ese tiempo, se liberan y tendrás que elegirlos de nuevo.</p>
     </div>
-    <p class="ayuda" style="margin-top:14px"><strong>No necesitas tener cuenta de Mercado Pago.</strong> Puedes pagar como invitado con tu tarjeta de débito o crédito. Al pagar te llevamos a la página segura de Mercado Pago; ahí elige "Continuar como invitado" si no tienes cuenta. Cuando termines, regresas aquí automáticamente y tus boletos con QR quedan listos.</p>
-    <p class="ayuda">¿Prefieres pagar por WhatsApp? Escríbenos con el botón de arriba y coordinamos tu compra directamente.</p>
-    <p class="ayuda" id="ayuda-apartar" style="display:none"></p>
+    <div class="notas-pago">
+      <div class="columnas" id="notas-columnas">
+        <p class="ayuda"><strong>No necesitas tener cuenta de Mercado Pago.</strong> Puedes pagar como invitado con tu tarjeta de débito o crédito. Al pagar te llevamos a la página segura de Mercado Pago; ahí elige "Continuar como invitado" si no tienes cuenta. Cuando termines, regresas aquí automáticamente y tus boletos con QR quedan listos.</p>
+        <p class="ayuda" id="ayuda-apartar" style="display:none"></p>
+      </div>
+      <p class="ayuda">¿Prefieres pagar por WhatsApp? Escríbenos con el botón de arriba y coordinamos tu compra directamente.</p>
+    </div>
   </div>
 
   <div id="no-encontrado" style="display:none">
@@ -134,6 +144,7 @@ async function cargarEvento(){
   if(ap && ap.disponible){
     $("#b-apartar").style.display = "";
     $("#ayuda-apartar").style.display = "";
+    $("#notas-columnas").classList.add("dos");
     $("#ayuda-apartar").innerHTML = `<strong>¿Quieres apartar?</strong> Paga el 50% por WhatsApp y tienes ${ap.dias} días para pagar el resto. Tus lugares quedan apartados cuando confirmemos tu anticipo. Si no liquidas a tiempo, se liberan y <strong>el anticipo no se devuelve</strong>. Puedes apartar hasta el ${escaparHtml(fechaLegible(ap.ultimoDia))}.`;
   }
   calcularTotal();
