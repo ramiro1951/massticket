@@ -11,7 +11,7 @@ test("una compra aprobada emite un boleto por persona y manda el correo", async 
   const ev = await s.crearEvento({ nombre: "Show", precio: 250, cupo: 10 });
   const { ventaId, boletos } = await s.comprarYPagar({ eventoId: ev.id, cantidad: 3, contacto: "luis@prueba.mx" });
   assert.equal(boletos.length, 3);
-  assert.ok(boletos.every((b) => b.precio === 250 && b.estado === "valido" && /^MT-[A-Z0-9]{4}-\d{4}$/.test(b.folio)));
+  assert.ok(boletos.every((b) => b.precio === 250 && b.estado === "valido" && /^MT-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-\d{4}$/.test(b.folio)));
   assert.equal(new Set(boletos.map((b) => b.folio)).size, 3, "los folios no se repiten");
   const venta = await s.pedir("/api/venta/" + ventaId);
   assert.equal(venta.datos.estado, "pagado");

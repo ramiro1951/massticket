@@ -272,12 +272,24 @@ async function avisarPorCorreo(asunto, html) {
   }
 }
 
-const ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function folioNuevo(i) {
+// Folio: "MT-K7Q2-X9FD-0142". Las 8 letras salen de un generador seguro
+// (crypto), así que no se pueden adivinar (32^8 ≈ un billón de opciones); el
+// número del final es el consecutivo, que garantiza que no se repita. Los
+// folios viejos (con 4 letras, "MT-3F9K-0142") siguen siendo válidos.
+const ABC = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sin I, O, 0 ni 1, que se confunden
+function letrasAlAzar(n) {
   let s = "";
-  for (let k = 0; k < 4; k++) s += ABC[Math.floor(Math.random() * ABC.length)];
-  return "MT-" + s + "-" + String(i).padStart(4, "0");
+  for (let k = 0; k < n; k++) s += ABC[crypto.randomInt(ABC.length)];
+  return s;
 }
+function folioNuevo(i) {
+  return "MT-" + letrasAlAzar(4) + "-" + letrasAlAzar(4) + "-" + String(i).padStart(4, "0");
+}
+
+// Un boleto cancelado (por reembolso, contracargo o a mano desde el panel) ya
+// no deja entrar ni ocupa lugar: su mesa o asiento se puede volver a vender.
+// El registro se conserva (estado "cancelado") para el historial.
+const boletoVigente = (b) => b.estado !== "cancelado";
 
 // Cuánto tiempo se le reserva el lugar a alguien que fue a pagar a Mercado
 // Pago pero todavía no confirma: pasado esto, si nunca volvió, se asume que
@@ -316,7 +328,7 @@ function retieneLugar(v, ahora = Date.now()) {
 // cupo para siempre por gente que nunca terminó de pagar).
 function ocupadosDe(db, eventoId) {
   const ahora = Date.now();
-  const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId).length;
+  const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId && boletoVigente(b)).length;
   const enPendientes = db.ventas
     .filter((v) => v.eventoId === eventoId && retieneLugar(v, ahora))
     .reduce((s, v) => s + v.cantidad, 0);
@@ -404,7 +416,7 @@ function precioPorBoleto(z) {
 // Lugares ya tomados en una zona: boletos emitidos + compras pendientes recientes.
 function ocupadosZona(db, eventoId, zonaId) {
   const ahora = Date.now();
-  const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId && b.zonaId === zonaId).length;
+  const enBoletos = db.boletos.filter((b) => b.eventoId === eventoId && b.zonaId === zonaId && boletoVigente(b)).length;
   const enPendientes = db.ventas
     .filter((v) => v.eventoId === eventoId && retieneLugar(v, ahora))
     .reduce((s, v) => {
@@ -470,7 +482,7 @@ function aplicarMapaAEvento(evento, mapa, zonas) {
 function estadoMesas(db, evento) {
   const estado = new Map();
   for (const b of db.boletos) {
-    if (b.eventoId === evento.id && b.mesaId) estado.set(String(b.mesaId), "vendida");
+    if (b.eventoId === evento.id && b.mesaId && boletoVigente(b)) estado.set(String(b.mesaId), "vendida");
   }
   const ahora = Date.now();
   for (const v of db.ventas) {
@@ -498,7 +510,7 @@ function estadoAsientos(db, evento, mapa) {
   };
   const toda = (mesaId, estado) => { for (let n = 1; n <= (total.get(String(mesaId)) || 0); n++) marcar(mesaId, n, estado); };
   for (const b of db.boletos) {
-    if (b.eventoId !== evento.id || !b.mesaId) continue;
+    if (b.eventoId !== evento.id || !b.mesaId || !boletoVigente(b)) continue;
     if (b.asiento) marcar(b.mesaId, Number(b.asiento), "vendido");
     else toda(b.mesaId, "vendido");
   }
@@ -1047,7 +1059,7 @@ app.put("/api/eventos/:id/por-asiento", requiereAdmin, seguro(async (req, res) =
     const vigente = (v) => v.eventoId === evento.id && retieneLugar(v, ahora);
     const completas = new Set(), sueltas = new Set();
     for (const b of db.boletos) {
-      if (b.eventoId !== evento.id || !b.mesaId) continue;
+      if (b.eventoId !== evento.id || !b.mesaId || !boletoVigente(b)) continue;
       (b.asiento ? sueltas : completas).add(String(b.mesaId));
     }
     for (const v of db.ventas) {
@@ -1381,6 +1393,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
     const venta = db.ventas.find((v) => v.id === ventaId);
     if (!venta) { resultado = { ventaNoEncontrada: true }; return; }
     if (venta.estado === "pagado") return; // idempotencia: ya se procesó este pago
+    if (venta.estado === "devuelto") return; // ya se reembolsó: nunca se emiten boletos
 
     venta.estado = "pagado";
     venta.pagoId = pago.id;
@@ -1424,7 +1437,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
       // igual los boletos (el pago ya está hecho) pero se deja el aviso en
       // el Panel para resolverlo a mano.
       const tomadas = new Set(
-        db.boletos.filter((b) => b.eventoId === venta.eventoId && b.mesaId && b.ventaId !== venta.id).map((b) => String(b.mesaId))
+        db.boletos.filter((b) => b.eventoId === venta.eventoId && b.mesaId && b.ventaId !== venta.id && boletoVigente(b)).map((b) => String(b.mesaId))
       );
       for (const m of venta.mesas) {
         if (tomadas.has(String(m.mesaId))) {
@@ -1459,7 +1472,7 @@ async function aplicarPagoAprobado(ventaId, pago) {
       // Igual que con las mesas: si el asiento ya se le dio a otra persona por
       // una demora larga, se emite el boleto (el pago ya está hecho) y queda el
       // aviso en el Panel para resolverlo a mano.
-      const otros = db.boletos.filter((b) => b.eventoId === venta.eventoId && b.mesaId && b.ventaId !== venta.id);
+      const otros = db.boletos.filter((b) => b.eventoId === venta.eventoId && b.mesaId && b.ventaId !== venta.id && boletoVigente(b));
       for (const a of venta.asientos) {
         const choca = otros.some((b) => String(b.mesaId) === String(a.mesaId) && (!b.asiento || Number(b.asiento) === Number(a.asiento)));
         if (choca) venta.conflictoMesas = [...(venta.conflictoMesas || []), `${a.mesaId} (asiento ${a.asiento})`];
@@ -1499,6 +1512,64 @@ async function aplicarPagoAprobado(ventaId, pago) {
 }
 
 // -------- Webhook de Mercado Pago: única fuente de verdad del pago --------
+// -------- Reembolsos y contracargos --------
+// Cuando Mercado Pago avisa que un pago se reembolsó completo o que el
+// cliente desconoció el cargo con su banco (contracargo), los boletos de esa
+// compra se cancelan: ya no dejan entrar y su lugar se puede volver a vender.
+// Los que ya se usaron en la puerta se quedan como "usado" (ya entraron).
+const ESTADOS_DEVOLUCION = { refunded: "reembolso", charged_back: "contracargo" };
+
+function cancelarBoleto(b, motivo, ahora = new Date().toISOString()) {
+  b.estado = "cancelado";
+  b.canceladoEn = ahora;
+  b.motivoCancelacion = motivo;
+}
+
+async function aplicarDevolucion(ventaId, pago) {
+  let resultado = null;
+  await conCandado(async () => {
+    const db = await leerDB();
+    const venta = db.ventas.find((v) => v.id === ventaId);
+    if (!venta) { resultado = { ventaNoEncontrada: true }; return; }
+    if (venta.estado === "devuelto") return; // idempotencia: ya se procesó
+    const motivo = ESTADOS_DEVOLUCION[pago.status];
+    const ahora = new Date().toISOString();
+    venta.estado = "devuelto";
+    venta.devolucion = { motivo, pagoId: pago.id, en: ahora };
+    let cancelados = 0;
+    let yaUsados = 0;
+    for (const b of db.boletos) {
+      if (b.ventaId !== venta.id) continue;
+      if (b.estado === "valido") { cancelarBoleto(b, motivo, ahora); cancelados++; }
+      else if (b.estado === "usado") yaUsados++;
+    }
+    await escribirDB(db);
+    resultado = { motivo, cancelados, yaUsados, nombre: venta.nombre, contacto: venta.contacto, evento: db.eventos.find((e) => e.id === venta.eventoId) || null };
+  });
+  return resultado;
+}
+
+// Reembolso parcial o disputa abierta: no se sabe qué boletos cubre, así que
+// no se cancela nada solo; se avisa al organizador (una vez por cambio) para
+// que cancele a mano en la pestaña Boletos lo que corresponda.
+async function marcarParaRevisar(ventaId, pago) {
+  const reembolsado = Number(pago.transaction_amount_refunded) || 0;
+  const motivo = pago.status === "in_mediation" ? "disputa" : reembolsado > 0 ? "reembolso parcial" : null;
+  if (!motivo) return null;
+  let resultado = null;
+  await conCandado(async () => {
+    const db = await leerDB();
+    const venta = db.ventas.find((v) => v.id === ventaId);
+    if (!venta || venta.estado !== "pagado") return;
+    const clave = `${motivo}:${reembolsado}`;
+    if (venta.avisoMP?.clave === clave) return; // ya se avisó de esto
+    venta.avisoMP = { clave, motivo, reembolsado, en: new Date().toISOString() };
+    await escribirDB(db);
+    resultado = { motivo, reembolsado, nombre: venta.nombre, evento: db.eventos.find((e) => e.id === venta.eventoId) || null };
+  });
+  return resultado;
+}
+
 // Se le contesta "OK" a Mercado Pago solo DESPUÉS de guardar los boletos. Si
 // algo falla (Mercado Pago no responde, no se pudo guardar), se contesta con
 // error y Mercado Pago vuelve a mandar el aviso más tarde; antes se contestaba
@@ -1521,12 +1592,20 @@ app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
   if (!paymentId) return res.sendStatus(200);
 
   let resultado;
+  let devolucion;
+  let revision;
   let pago;
   try {
     const paymentApi = new Payment(mpClient);
     pago = await paymentApi.get({ id: paymentId });
-    if (pago.status !== "approved") return res.sendStatus(200);
-    resultado = await aplicarPagoAprobado(pago.external_reference, pago);
+    if (ESTADOS_DEVOLUCION[pago.status]) {
+      devolucion = await aplicarDevolucion(pago.external_reference, pago);
+    } else if (pago.status === "approved" || pago.status === "in_mediation") {
+      if (pago.status === "approved") resultado = await aplicarPagoAprobado(pago.external_reference, pago);
+      revision = await marcarParaRevisar(pago.external_reference, pago);
+    } else {
+      return res.sendStatus(200);
+    }
   } catch (err) {
     console.error("Error procesando webhook (Mercado Pago lo reintentará):", err);
     return res.sendStatus(500);
@@ -1534,6 +1613,27 @@ app.post("/api/webhook/mercadopago", seguro(async (req, res) => {
   res.sendStatus(200);
 
   // Lo que sigue va después de contestar, para no hacer esperar a Mercado Pago.
+  if (devolucion && !devolucion.ventaNoEncontrada) {
+    const { motivo, cancelados, yaUsados, nombre, evento } = devolucion;
+    console.warn(`Pago ${pago.id} con ${motivo}: ${cancelados} boleto(s) de ${nombre} cancelado(s).`);
+    avisarPorCorreo(
+      `⚠️ massticket: ${motivo} de ${nombre}`,
+      `<p>Mercado Pago avisó un <strong>${escaparHtml(motivo)}</strong> del pago ${escaparHtml(pago.id)} de
+        <strong>${escaparHtml(nombre)}</strong> (${escaparHtml(evento?.nombre || "evento")}).</p>
+        <p>Se cancelaron <strong>${cancelados}</strong> boleto(s): ya no dejan entrar y sus lugares se pueden volver a vender.</p>
+        ${yaUsados ? `<p>${yaUsados} boleto(s) ya se habían usado en la puerta.</p>` : ""}`
+    );
+  }
+  if (revision) {
+    avisarPorCorreo(
+      `⚠️ massticket: ${revision.motivo} de ${revision.nombre}`,
+      `<p>El pago ${escaparHtml(pago.id)} de <strong>${escaparHtml(revision.nombre)}</strong>
+        (${escaparHtml(revision.evento?.nombre || "evento")}) tiene un <strong>${escaparHtml(revision.motivo)}</strong>
+        ${revision.reembolsado ? `(reembolsado: $${escaparHtml(revision.reembolsado)})` : ""}.</p>
+        <p>Sus boletos <strong>siguen válidos</strong>. Si corresponde, cancela los que ya no valen en el panel:
+        pestaña Boletos → botón "Cancelar" de cada boleto.</p>`
+    );
+  }
   if (resultado?.ventaNoEncontrada) {
     // Pago aprobado que no corresponde a ninguna venta: no se emitieron
     // boletos. Sin external_reference no es de este sitio (por ejemplo, un
@@ -1940,7 +2040,7 @@ app.post("/api/apartados/:id/liquidar", requiereAdmin, seguro(async (req, res) =
 
     // Nunca emitir dos veces la misma mesa o asiento: si ya hay boletos de
     // otra venta en esos lugares (algo raro, como un pago muy tardío), se avisa.
-    const ajenos = db.boletos.filter((b) => b.eventoId === evento.id && b.mesaId && b.ventaId !== venta.id);
+    const ajenos = db.boletos.filter((b) => b.eventoId === evento.id && b.mesaId && b.ventaId !== venta.id && boletoVigente(b));
     for (const p of venta.plan || []) {
       if (!p.mesa) continue;
       const choca = ajenos.find((b) => String(b.mesaId) === String(p.mesa) && (!p.asiento || !b.asiento || Number(b.asiento) === Number(p.asiento)));
@@ -2014,6 +2114,7 @@ app.get("/api/clientes", requiereAdmin, seguro(async (req, res) => {
   const grupos = new Map();
 
   for (const b of db.boletos) {
+    if (!boletoVigente(b)) continue;
     const contacto = String(b.contacto || "").trim();
     const email = esEmail(contacto) ? contacto.toLowerCase() : "";
     const telefono = String(b.telefono || "").trim() || (contacto && !esEmail(contacto) ? contacto : "");
@@ -2090,13 +2191,15 @@ app.post("/api/admin/reenviar-correo", requiereAdmin, seguro(async (req, res) =>
     if (!venta) { falla = { status: 404, error: "Venta no encontrada." }; return; }
     const boletos = db.boletos.filter((b) => b.ventaId === venta.id);
     if (!boletos.length) { falla = { status: 409, error: "Esta venta todavía no tiene boletos." }; return; }
+    const vigentes = boletos.filter(boletoVigente);
+    if (!vigentes.length) { falla = { status: 409, error: "Todos los boletos de esta venta están cancelados." }; return; }
     if (nuevoCorreo && nuevoCorreo !== venta.contacto) {
       venta.contacto = nuevoCorreo;
       for (const b of boletos) b.contacto = nuevoCorreo;
       await escribirDB(db);
     }
     if (!String(venta.contacto || "").includes("@")) { falla = { status: 400, error: "Esta venta no tiene correo. Escribe uno." }; return; }
-    datos = { evento: db.eventos.find((e) => e.id === venta.eventoId) || null, nombre: venta.nombre, contacto: venta.contacto, boletos };
+    datos = { evento: db.eventos.find((e) => e.id === venta.eventoId) || null, nombre: venta.nombre, contacto: venta.contacto, boletos: vigentes };
   });
   if (falla) return res.status(falla.status).json({ error: falla.error });
   await enviarBoletosPorEmail(datos);
@@ -2104,6 +2207,31 @@ app.post("/api/admin/reenviar-correo", requiereAdmin, seguro(async (req, res) =>
   const correo = db.ventas.find((v) => v.id === ventaId)?.correo || null;
   if (correo?.estado !== "enviado") return res.status(502).json({ error: "No se pudo enviar: " + (correo?.error || "error desconocido"), correo });
   res.json({ ok: true, correo });
+}));
+
+// -------- Admin: cancelar boletos a mano --------
+// Para reembolsos parciales, devoluciones en efectivo o errores. Un boleto
+// cancelado ya no deja entrar y su lugar se puede volver a vender. Los que ya
+// se usaron en la puerta no se cancelan.
+app.post("/api/admin/cancelar-boletos", requiereAdmin, seguro(async (req, res) => {
+  const folios = Array.isArray(req.body?.folios) ? [...new Set(req.body.folios.map((f) => String(f).trim().toUpperCase()))] : [];
+  const motivo = String(req.body?.motivo || "cancelado en el panel").trim().slice(0, 200);
+  if (!folios.length) return res.status(400).json({ error: "Elige al menos un boleto." });
+  await conCandado(async () => {
+    const db = await leerDB();
+    const cancelados = [];
+    const omitidos = [];
+    const ahora = new Date().toISOString();
+    for (const folio of folios) {
+      const b = db.boletos.find((x) => x.folio === folio);
+      if (!b) omitidos.push({ folio, motivo: "no existe" });
+      else if (b.estado === "usado") omitidos.push({ folio, motivo: "ya entró" });
+      else if (b.estado === "cancelado") omitidos.push({ folio, motivo: "ya estaba cancelado" });
+      else { cancelarBoleto(b, motivo, ahora); cancelados.push(folio); }
+    }
+    if (cancelados.length) await escribirDB(db);
+    res.json({ cancelados, omitidos });
+  });
 }));
 
 // -------- Puerta: validar folio (admin) --------
@@ -2127,6 +2255,9 @@ app.post("/api/validar", requiereAdmin, seguro(async (req, res) => {
         fecha: suEvento?.fecha || "",
       });
     }
+    if (b.estado === "cancelado") {
+      return res.status(409).json({ resultado: "cancelado", nombre: b.nombre, motivo: b.motivoCancelacion || "", canceladoEn: b.canceladoEn || "" });
+    }
     if (b.estado === "usado") {
       return res.json({ resultado: "repetido", nombre: b.nombre, usadoEn: b.usadoEn, zona: b.area || b.zona || "", mesa: b.mesa || "", asiento: b.asiento || "" });
     }
@@ -2146,7 +2277,8 @@ app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
   let ids = null;
   if (eventoId) ids = [eventoId];
   else if (eventoIds !== undefined) ids = String(eventoIds).split(",").filter(Boolean);
-  const boletos = ids ? db.boletos.filter((b) => ids.includes(b.eventoId)) : db.boletos;
+  const todos = ids ? db.boletos.filter((b) => ids.includes(b.eventoId)) : db.boletos;
+  const boletos = todos.filter(boletoVigente);
   const ventas = ids ? db.ventas.filter((v) => ids.includes(v.eventoId)) : db.ventas;
   const cupo = (ids ? db.eventos.filter((e) => ids.includes(e.id)) : db.eventos)
     .reduce((s, e) => s + (Number(e.cupo) || 0), 0);
@@ -2201,6 +2333,7 @@ app.get("/api/panel", requiereAdmin, seguro(async (req, res) => {
     ...(mesasInfo ? { mesas: mesasInfo } : {}),
     ...(conflictos.length ? { conflictos } : {}),
     correosFallidos: ventas.filter((v) => v.correo?.estado === "fallo").length,
+    cancelados: todos.length - boletos.length,
     ...(porZona ? { porZona } : {}),
     pendientesDePago: ventas.filter((v) => pendienteVigente(v)).length,
   });

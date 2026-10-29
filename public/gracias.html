@@ -54,6 +54,17 @@ function fechaLegible(iso){
 const ventaId = new URLSearchParams(location.search).get("venta");
 
 function htmlBoleto(b, evento){
+  // Un boleto cancelado (reembolso) se muestra sin QR, para que nadie lo presente.
+  if(b.estado === "cancelado"){
+    return `<article class="boleto" style="opacity:.6">
+      <div><div class="cuerpo">
+        <h3>${escapar(evento.nombre)}</h3>
+        <dl><dt>A nombre de</dt><dd>${escapar(b.nombre)}</dd></dl>
+        <div class="folio" style="text-decoration:line-through">${escapar(b.folio)}</div>
+        <p style="margin-top:8px;font-weight:700">Boleto cancelado: ya no es válido para entrar.</p>
+      </div></div>
+    </article>`;
+  }
   return `<article class="boleto">
     <div>
       ${evento.imagen?`<img class="boleto-flyer" src="${evento.imagen}" alt="">`:""}
@@ -91,6 +102,13 @@ async function revisar(intentos){
     const rVenta = await fetch("/api/venta/"+ventaId);
     const venta = await rVenta.json();
 
+    if(venta.estado === "devuelto"){
+      $("#esperando").style.display="none";
+      $("#fallo").style.display="block";
+      $("#fallo h2").textContent = "Compra reembolsada";
+      $("#fallo-msg").textContent = "Esta compra se reembolsó, así que sus boletos se cancelaron y ya no son válidos para entrar.";
+      return;
+    }
     if(venta.estado === "pagado"){
       $("#esperando").style.display="none";
       $("#listo").style.display="block";
