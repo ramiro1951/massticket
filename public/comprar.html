@@ -251,6 +251,9 @@ function mostrarError(msg){
   const c = $("#error-caja");
   c.textContent = msg;
   c.classList.add("ver");
+  // El aviso está arriba de la página: se lleva a la vista para que se vea
+  // aunque la persona esté abajo, junto a los botones.
+  c.scrollIntoView({behavior:"smooth", block:"center"});
 }
 
 $("#b-comprar").onclick = async ()=>{
