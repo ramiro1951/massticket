@@ -156,7 +156,13 @@ export async function arrancarServidor(entorno = {}) {
       const aviso = await this.avisarPago(id);
       if (aviso.status !== 200) throw new Error("El aviso de pago falló: " + aviso.status);
       const venta = await pedir("/api/venta/" + compra.datos.ventaId);
-      return { ventaId: compra.datos.ventaId, boletos: venta.datos.boletos };
+      return { ventaId: compra.datos.ventaId, pagoId: id, boletos: venta.datos.boletos };
+    },
+    // Cambia un pago ya existente en "Mercado Pago" (por ejemplo, a reembolsado).
+    actualizarPago(id, cambios) {
+      const actuales = JSON.parse(fs.readFileSync(archivoPagos, "utf8"));
+      actuales[String(id)] = { ...actuales[String(id)], ...cambios };
+      fs.writeFileSync(archivoPagos, JSON.stringify(actuales));
     },
     validar(folio, eventoId) {
       return pedir("/api/validar", { metodo: "POST", admin: true, cuerpo: { folio, ...(eventoId ? { eventoId } : {}) } });

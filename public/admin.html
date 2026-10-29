@@ -708,10 +708,13 @@ async function validar(codigo){
     return;
   }
   if(r.resultado === "no_existe") mostrarResultado("malo","Boleto no encontrado","El folio "+folio+" no existe.");
+  else if(r.resultado === "cancelado") mostrarResultado("malo","Boleto cancelado","Este boleto de "+r.nombre+" se canceló"+(r.motivo?" ("+r.motivo+")":"")+". No es válido para entrar.");
   else if(r.resultado === "otro_evento") mostrarResultado("malo","Boleto de otro evento","Este boleto de "+r.nombre+" es para "+r.evento+(r.fecha?" ("+fechaLegible(r.fecha)+")":"")+", no para el evento elegido arriba. No se registró la entrada.");
   const lugar = [r.zona, r.mesa?"Mesa "+r.mesa:"", r.asiento?"Asiento "+r.asiento:""].filter(Boolean).join(" · ");
   if(r.resultado === "repetido") mostrarResultado("repetido","Este boleto ya entró", r.nombre+(lugar?" ("+lugar+")":"")+" pasó a las "+new Date(r.usadoEn).toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+".");
-  else if(r.resultado !== "no_existe" && r.resultado !== "otro_evento") mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+(lugar?lugar+" · ":"")+r.folio);
+  // "Adelante" solo cuando el servidor dice "ok"; cualquier otra respuesta no deja pasar.
+  else if(r.resultado === "ok") mostrarResultado("ok","Adelante","Entra "+r.nombre+" · "+(lugar?lugar+" · ":"")+r.folio);
+  else if(!["no_existe","cancelado","otro_evento"].includes(r.resultado)) mostrarResultado("malo","No se pudo validar","Respuesta inesperada del servidor. NO se registró la entrada de "+folio+". Intenta de nuevo antes de dejarlo/a pasar.");
   $("#p-folio").value="";
 }
 $("#b-validar").onclick = ()=>validar($("#p-folio").value);
@@ -757,11 +760,35 @@ function pintarTabla(lista){
       <td>${b.folio}</td>
       <td>${escapar(b.nombre)}<div style="color:var(--humo);font-size:12px">${escapar([b.contacto, b.telefono].filter(Boolean).join(" · "))}</div>${lineaCorreo(b)}</td>
       <td>${b.precio>0?pesos(b.precio):"Cortesía"}<div style="color:var(--humo);font-size:12px">${escapar(b.metodo)}${lugarTexto(b)?" · "+escapar(lugarTexto(b)):""}</div></td>
-      <td><span class="estado ${b.estado}">${b.estado==="usado"?"Ya entró":"Válido"}</span></td>
+      <td>${celdaEstado(b)}</td>
     </tr>`).join("")}</tbody></table>`;
   $("#tabla-boletos").querySelectorAll("[data-reenviar]").forEach(boton=>{
     boton.onclick = ()=>reenviarCorreo(boton.dataset.reenviar, boton.dataset.correo);
   });
+  $("#tabla-boletos").querySelectorAll("[data-cancelar]").forEach(boton=>{
+    boton.onclick = ()=>cancelarBoleto(boton.dataset.cancelar, boton.dataset.nombre);
+  });
+}
+// Estado del boleto y, si sigue válido, el botón para cancelarlo (reembolso
+// parcial, devolución en efectivo o error).
+function celdaEstado(b){
+  if(b.estado==="cancelado"){
+    return `<span class="estado cancelado">Cancelado</span><div style="color:var(--humo);font-size:12px">${escapar(b.motivoCancelacion||"")}</div>`;
+  }
+  if(b.estado==="usado") return `<span class="estado usado">Ya entró</span>`;
+  return `<span class="estado valido">Válido</span><div><button class="btn claro" style="padding:2px 8px;font-size:12px;margin-top:4px" data-cancelar="${escapar(b.folio)}" data-nombre="${escapar(b.nombre)}">Cancelar</button></div>`;
+}
+async function cancelarBoleto(folio, nombre){
+  const motivo = prompt(`¿Cancelar el boleto ${folio} de ${nombre}? Ya no dejará entrar y su lugar se podrá volver a vender.\n\nEscribe el motivo (por ejemplo: reembolso parcial, devolución en efectivo):`, "reembolso");
+  if(motivo === null) return;
+  try{
+    const r = await api("/api/admin/cancelar-boletos", {method:"POST", body: JSON.stringify({folios:[folio], motivo: motivo.trim() || "cancelado en el panel"})});
+    if(r && r.cancelados && r.cancelados.length) alert("Listo: el boleto "+folio+" quedó cancelado.");
+    else alert((r && (r.error || (r.omitidos && r.omitidos[0] && "No se canceló: "+r.omitidos[0].motivo))) || "No se pudo cancelar.");
+  }catch(e){
+    alert("No se pudo cancelar. Revisa tu conexión e intenta de nuevo.");
+  }
+  cargarBoletos();
 }
 async function reenviarCorreo(ventaId, correoActual){
   const correo = prompt("¿A qué correo se mandan los boletos de esta compra? (Corrígelo si estaba mal escrito)", correoActual.includes("@") ? correoActual : "");
@@ -1024,6 +1051,9 @@ async function cargarPanel(){
   }
   const filas = Object.entries(p.porMetodo||{}).map(([m,v])=>`<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px"><span>${escapar(m)}</span><span>${pesos(v)}</span></div>`).join("");
   $("#metodos").innerHTML = filas || '<div style="color:var(--humo);font-size:14px">Sin ventas todavía.</div>';
+  if(p.cancelados){
+    $("#metodos").innerHTML += `<div class="ayuda" style="margin-top:10px">${p.cancelados} boleto(s) cancelado(s) (reembolso, contracargo o a mano): no cuentan en vendidos ni en ingresos.</div>`;
+  }
   if(p.pendientesDePago){
     $("#metodos").innerHTML += `<div class="ayuda" style="margin-top:10px">${p.pendientesDePago} compra(s) esperando confirmación de Mercado Pago.
       <button id="b-reconciliar" style="margin-left:8px">Revisar con Mercado Pago</button>

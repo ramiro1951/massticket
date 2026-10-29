@@ -30,6 +30,11 @@ messages are in Spanish; keep it that way.
   All payment links expire at 19 min (`expiracionMP`) and exclude delayed payment types
   (OXXO/cash, bank, SPEI: `TIPOS_PAGO_EXCLUIDOS`), so a payment can't arrive after its
   hold was released.
+- Refunds: a full refund or chargeback notice from Mercado Pago marks the sale `devuelto`
+  and its unused tickets `cancelado` (`aplicarDevolucion()`, idempotent). Partial refunds and
+  disputes only email the organizer, who cancels tickets by hand (Boletos tab). Cancelled
+  tickets don't enter at the door and don't count toward capacity or revenue: use
+  `boletoVigente()` whenever counting or checking tickets.
 - Pricing modes per event: single price, `zonas` (price per purchase / `personas`), or
   `mapaId` (zones derived from the map's sections, price per person).
 - "Today" uses `hoyMX()` (Mexico City time, rolls over at 6:00 am).
